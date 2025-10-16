@@ -1,0 +1,13 @@
+# @package _global_
+job_name: snn_planner
+py_func: train
+objective_aggregate_mode: mean
+
+defaults:
+  - override /data_augmentation:
+      - state_perturbation
+  - override /splitter: nuplan
+  - override /model: snn_planner
+  - override /scenario_filter: training_scenarios_1M
+  - override /custom_trainer: snn_planner
+  - override /lightning: custom_lightning
