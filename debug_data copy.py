@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     os.environ["http_proxy"] = "http://127.0.0.1:11234"
     os.environ["https_proxy"] = "http://127.0.0.1:11234"
-    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+    os.environ["CUDA_VISIBLE_DEVICES"] = "7"
     os.environ["NUPLAN_MAPS_ROOT"] = "/data2/hzh/nuplan/dataset/maps"
     os.environ["NUPLAN_DATA_ROOT"] = "/data2/hzh/nuplan/dataset"
     os.environ["NUPLAN_EXP_ROOT"] = "/data2/hzh/nuplan/exp"
@@ -75,12 +75,11 @@ if __name__ == "__main__":
         config_name=CONFIG_NAME,
         overrides=[
             "py_func=train",
-            "+training=train_snn_planner",
+            "+training=train_planTF",
             "worker=sequential",  # Single-threaded for debugging
             "scenario_builder=nuplan_mini",
             "scenario_filter.limit_total_scenarios=10",  # Reduced for debugging
-            "cache.cache_path=/data2/hzh/nuplan/exp/cache_snn_planner",
-            "cache.use_cache_without_dataset=true",
+            "cache.cache_path=null",
             "data_loader.params.batch_size=2",  # Small batch for debugging
             "data_loader.params.num_workers=0",  # Single-threaded dataloader
             "lr=1e-3",

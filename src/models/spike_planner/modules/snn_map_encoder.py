@@ -86,15 +86,16 @@ class SNNMapEncoder(nn.Module):
         ], dim=-1)
 
         bs, M, P, C = polygon_feature.shape
-        valid_mask_reshaped = valid_mask[:, :, 0, :]  # Take first lane
-        valid_mask_flat = valid_mask_reshaped.view(bs * M, P)
+        # valid_mask is already [B, M, P] - no need to index
+        valid_mask_reshaped = valid_mask.view(bs, M, P)
+        valid_mask_flat = valid_mask.view(bs * M, P)
         polygon_feature_flat = polygon_feature.reshape(bs * M, P, C)
 
         # Encode polygon geometry
         # Note: SNNPointsEncoder processes without time dimension, we expand later
         x_polygon = self.polygon_encoder(
             polygon_feature_flat.view(bs, M, P, C),
-            valid_mask_reshaped.view(bs, M, P)
+            valid_mask_reshaped
         )  # [B, M, dim]
 
         # Expand to time dimension

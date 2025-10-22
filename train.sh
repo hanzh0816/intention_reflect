@@ -15,11 +15,12 @@ export PYTHONPATH=$PYTHONPATH:$(pwd)
 #   lightning.trainer.params.val_check_interval=0.5 \
 #   wandb.mode=online wandb.project=nuplan wandb.name=plantf
 
-CUDA_VISIBLE_DEVICES=2,3 python run_training.py \
+CUDA_VISIBLE_DEVICES=1,2,3 python run_training.py \
     py_func=train +training=train_snn_planner \
     worker=single_machine_thread_pool worker.max_workers=32 \
-    scenario_builder=nuplan cache.cache_path=/data2/hzh/nuplan/exp/cache_plantf_1M \
-    model=snn_planner \
-    lr=5e-4 epochs=25 warmup_epochs=3 \
+    scenario_builder=nuplan cache.cache_path=/data2/hzh/nuplan/exp/cache_snn_planner \
     cache.use_cache_without_dataset=true \
-    wandb.mode=online wandb.project=nuplan wandb.name=snn_planner
+    data_loader.params.batch_size=32 data_loader.params.num_workers=32 \
+    lr=5e-4 epochs=25 warmup_epochs=3 weight_decay=0.0001
+    # lightning.trainer.params.val_check_interval=0.5 \
+    # wandb.mode=online wandb.project=nuplan wandb.name=snn_planner

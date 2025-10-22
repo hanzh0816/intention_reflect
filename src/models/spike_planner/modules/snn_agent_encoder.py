@@ -215,24 +215,24 @@ class SNNStateAttentionEncoder(nn.Module):
         x_embed_list = []
         for i, linear_module in enumerate(self.linears):
             x_i = x[:, i:i+1]  # [B, 1]
-            x_i_expanded = x_i.unsqueeze(0).repeat(T, 1, 1)  # [T, B, 1]
-            x_i_flat = x_i_expanded.reshape(T * B, 1)
 
-            # Pass through linear + bn + lif
-            for layer in linear_module:
-                if isinstance(layer, nn.Linear):
-                    x_i_flat = layer(x_i_flat)
-                elif isinstance(layer, nn.BatchNorm1d):
-                    x_i_flat = layer(x_i_flat)
-                    x_i_flat = x_i_flat.reshape(T, B, -1)
-                elif isinstance(layer, MultiStepLIFNode):
-                    x_i_out = layer(x_i_flat)
-                    x_embed_list.append(x_i_out)
+            # Process through Linear + BatchNorm (without time dimension)
+            x_i = linear_module[0](x_i)  # Linear: [B, 1] -> [B, dim]
+            x_i = linear_module[1](x_i)  # BatchNorm: [B, dim] -> [B, dim]
+
+            # Expand to time dimension for LIF
+            x_i = x_i.unsqueeze(0).repeat(T, 1, 1)  # [T, B, dim]
+
+            # Pass through LIF
+            x_i = linear_module[2](x_i)  # LIF: [T, B, dim] -> [T, B, dim]
+
+            x_embed_list.append(x_i)
 
         # Stack embeddings: [T, B, state_channel, dim]
         x_embed = torch.stack(x_embed_list, dim=2)
 
         # Add positional embedding
+        # pos_embed: [1, state_channel, dim] -> [T, B, state_channel, dim]
         pos_embed = self.pos_embed.unsqueeze(0).repeat(T, B, 1, 1)
         x_embed = x_embed + pos_embed
 
