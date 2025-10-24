@@ -7,9 +7,9 @@ traffic lights, speed limits, and route information using SNN components.
 
 import torch
 import torch.nn as nn
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 
 from ..layers.snn_embedding import SNNPointsEncoder
+from ..layers.snn_neuron import LIFNeuron
 
 
 class SNNMapEncoder(nn.Module):
@@ -23,29 +23,32 @@ class SNNMapEncoder(nn.Module):
         self,
         polygon_channel=6,
         dim=128,
-        tau=2.0,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
 
         self.dim = dim
 
+        if neuron_cfg is None:
+            neuron_cfg = {}
+        neuron_cfg = neuron_cfg.copy()
+        neuron_cfg.setdefault('detach_reset', True)
+
         # Polygon geometry encoder
         self.polygon_encoder = SNNPointsEncoder(
             feat_channel=polygon_channel,
             encoder_channel=dim,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         # Speed limit embedding
         self.speed_limit_fc1 = nn.Linear(1, dim, bias=False)
         self.speed_limit_bn1 = nn.BatchNorm1d(dim)
-        self.speed_limit_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.speed_limit_lif1 = LIFNeuron(**neuron_cfg)
 
         self.speed_limit_fc2 = nn.Linear(dim, dim, bias=False)
         self.speed_limit_bn2 = nn.BatchNorm1d(dim)
-        self.speed_limit_lif2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.speed_limit_lif2 = LIFNeuron(**neuron_cfg)
 
         # Categorical embeddings (not time-dependent)
         self.type_emb = nn.Embedding(3, dim)

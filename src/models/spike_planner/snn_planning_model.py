@@ -7,7 +7,6 @@ for autonomous driving trajectory prediction.
 
 import torch
 import torch.nn as nn
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 from nuplan.planning.training.modeling.torch_module_wrapper import TorchModuleWrapper
 from nuplan.planning.training.preprocessing.target_builders.ego_trajectory_target_builder import (
@@ -17,6 +16,7 @@ from nuplan.planning.training.preprocessing.target_builders.ego_trajectory_targe
 from src.feature_builders.nuplan_feature_builder import NuplanFeatureBuilder
 
 from .layers.snn_transformer_encoder_layer import SNNTransformerEncoderLayer
+from .layers.snn_neuron import LIFNeuron
 from .modules.snn_agent_encoder import SNNAgentEncoder
 from .modules.snn_map_encoder import SNNMapEncoder
 from .modules.snn_trajectory_decoder import SNNTrajectoryDecoder
@@ -49,10 +49,8 @@ class SNNPlanningModel(TorchModuleWrapper):
         state_attn_encoder=True,
         state_dropout=0.75,
         time_steps=4,
-        tau=2.0,
-        v_threshold=0.5,
         scale=0.25,
-        backend='torch',
+        neuron_cfg: dict = None,
         feature_builder: NuplanFeatureBuilder = NuplanFeatureBuilder(),
     ):
         """
@@ -71,10 +69,9 @@ class SNNPlanningModel(TorchModuleWrapper):
             state_attn_encoder: Whether to use attention for state encoding
             state_dropout: Dropout rate for state features
             time_steps: Number of SNN time steps (T)
-            tau: Time constant for LIF neurons
-            v_threshold: Voltage threshold for LIF neurons
             scale: Scaling factor for attention
-            backend: Backend for spikingjelly ('torch' or 'cupy')
+            neuron_cfg: Dictionary containing neuron configuration (spike_mode, tau,
+                       v_threshold, v_reset, detach_reset, backend, etc.)
             feature_builder: Feature builder for nuplan
         """
         super().__init__(
@@ -88,14 +85,26 @@ class SNNPlanningModel(TorchModuleWrapper):
         self.future_steps = future_steps
         self.time_steps = time_steps
 
+        # Set default neuron configuration
+        if neuron_cfg is None:
+            neuron_cfg = {
+                'spike_mode': 'lif',
+                'tau': 2.0,
+                'v_threshold': 1.0,
+                'v_reset': 0.0,
+                'detach_reset': True,
+                'backend': 'torch',
+            }
+
+
         # Position embedding MLP
         self.pos_emb_fc1 = nn.Linear(4, dim, bias=False)
         self.pos_emb_bn1 = nn.BatchNorm1d(dim)
-        self.pos_emb_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.pos_emb_lif1 = LIFNeuron(**neuron_cfg)
 
         self.pos_emb_fc2 = nn.Linear(dim, dim, bias=False)
         self.pos_emb_bn2 = nn.BatchNorm1d(dim)
-        self.pos_emb_lif2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.pos_emb_lif2 = LIFNeuron(**neuron_cfg)
 
         # Agent encoder
         self.agent_encoder = SNNAgentEncoder(
@@ -107,16 +116,14 @@ class SNNPlanningModel(TorchModuleWrapper):
             use_ego_history=use_ego_history,
             state_attn_encoder=state_attn_encoder,
             state_dropout=state_dropout,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         # Map encoder
         self.map_encoder = SNNMapEncoder(
             dim=dim,
             polygon_channel=polygon_channel,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         # Transformer encoder blocks
@@ -125,10 +132,8 @@ class SNNPlanningModel(TorchModuleWrapper):
                 dim=dim,
                 num_heads=num_heads,
                 drop_path=dp,
-                tau=tau,
-                v_threshold=v_threshold,
                 scale=scale,
-                backend=backend,
+                neuron_cfg=neuron_cfg,
             )
             for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
         ])
@@ -142,14 +147,13 @@ class SNNPlanningModel(TorchModuleWrapper):
             num_modes=num_modes,
             future_steps=future_steps,
             out_channels=4,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         # Agent prediction head
         self.agent_pred_fc1 = nn.Linear(dim, dim * 2, bias=False)
         self.agent_pred_bn1 = nn.BatchNorm1d(dim * 2)
-        self.agent_pred_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.agent_pred_lif1 = LIFNeuron(**neuron_cfg)
 
         self.agent_pred_fc2 = nn.Linear(dim * 2, future_steps * 2)
 

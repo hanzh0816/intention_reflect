@@ -24,11 +24,18 @@ imitation_planner:
     state_attn_encoder: true
 
     # SNN-specific parameters
-    time_steps: 4
-    tau: 2.0
-    v_threshold: 0.5
-    scale: 0.25
-    backend: 'torch'
+    time_steps: 4 # Number of SNN simulation time steps
+    scale: 0.25 # Attention scaling factor
+
+    # Spiking neuron configuration
+    # All LIF neuron parameters are now packed in neuron_cfg dictionary
+    neuron_cfg:
+      spike_mode: 'lif' # Neuron type: 'lif', 'plif', 'if', or 'ilif'
+      tau: 2.0 # Time constant for LIF neurons
+      v_threshold: 1.0 # Voltage threshold for standard neurons
+      v_reset: 0.0 # Reset voltage after spike
+      detach_reset: true # Detach reset in gradient computation
+      backend: 'torch' # Backend for spikingjelly ('torch' or 'cupy')
 
     feature_builder:
       _target_: src.feature_builders.nuplan_feature_builder.NuplanFeatureBuilder

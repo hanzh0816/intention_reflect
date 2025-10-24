@@ -32,10 +32,8 @@ class SNNTransformerEncoderLayer(nn.Module):
         drop=0.0,
         attn_drop=0.0,
         drop_path=0.0,
-        tau=2.0,
-        v_threshold=0.5,
         scale=0.25,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
 
@@ -49,10 +47,8 @@ class SNNTransformerEncoderLayer(nn.Module):
             num_heads=num_heads,
             dropout=attn_drop,
             qkv_bias=qkv_bias,
-            tau=tau,
-            v_threshold=v_threshold,
             scale=scale,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
         self.drop_path1 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
@@ -60,9 +56,8 @@ class SNNTransformerEncoderLayer(nn.Module):
         self.mlp = SNNMlp(
             in_features=dim,
             hidden_features=int(dim * mlp_ratio),
-            tau=tau,
             drop=drop,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
         self.drop_path2 = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 

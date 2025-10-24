@@ -7,11 +7,11 @@ and current states using SNN components.
 
 import torch
 import torch.nn as nn
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 
 from ..layers.snn_common_layers import build_snn_mlp
 from ..layers.snn_embedding import SNNNATSequenceEncoder
 from ..layers.snn_attention import SNNMultiheadAttention
+from ..layers.snn_neuron import LIFNeuron
 
 
 class SNNAgentEncoder(nn.Module):
@@ -31,8 +31,7 @@ class SNNAgentEncoder(nn.Module):
         drop_path=0.2,
         state_attn_encoder=True,
         state_dropout=0.75,
-        tau=2.0,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
         self.dim = dim
@@ -41,13 +40,15 @@ class SNNAgentEncoder(nn.Module):
         self.hist_steps = hist_steps
         self.state_attn_encoder = state_attn_encoder
 
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
         # History encoder using SNN NAT
         self.history_encoder = SNNNATSequenceEncoder(
             in_chans=history_channel,
             embed_dim=dim // 4,
             drop_path_rate=drop_path,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         if not use_ego_history:
@@ -55,15 +56,15 @@ class SNNAgentEncoder(nn.Module):
                 # Simple MLP encoder for ego state
                 self.ego_state_fc1 = nn.Linear(state_channel, dim, bias=False)
                 self.ego_state_bn1 = nn.BatchNorm1d(dim)
-                self.ego_state_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+                self.ego_state_lif1 = LIFNeuron(**neuron_cfg)
 
                 self.ego_state_fc2 = nn.Linear(dim, dim, bias=False)
                 self.ego_state_bn2 = nn.BatchNorm1d(dim)
-                self.ego_state_lif2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+                self.ego_state_lif2 = LIFNeuron(**neuron_cfg)
             else:
                 # Attention-based encoder for ego state
                 self.ego_state_emb = SNNStateAttentionEncoder(
-                    state_channel, dim, state_dropout, tau=tau, backend=backend
+                    state_channel, dim, state_dropout, neuron_cfg=neuron_cfg
                 )
 
         self.type_emb = nn.Embedding(4, dim)
@@ -167,19 +168,22 @@ class SNNStateAttentionEncoder(nn.Module):
     Uses attention to aggregate different state features.
     """
 
-    def __init__(self, state_channel, dim, state_dropout=0.5, tau=2.0, backend='torch'):
+    def __init__(self, state_channel, dim, state_dropout=0.5, neuron_cfg=None):
         super().__init__()
 
         self.state_channel = state_channel
         self.state_dropout = state_dropout
         self.dim = dim
 
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
         # Linear projection for each state channel
         self.linears = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(1, dim, bias=False),
                 nn.BatchNorm1d(dim),
-                MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend),
+                LIFNeuron(**neuron_cfg),
             )
             for _ in range(state_channel)
         ])
@@ -189,8 +193,7 @@ class SNNStateAttentionEncoder(nn.Module):
             embed_dim=dim,
             num_heads=4,
             qkv_bias=True,
-            tau=tau,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         self.pos_embed = nn.Parameter(torch.Tensor(1, state_channel, dim))

@@ -15,8 +15,9 @@ Input shape: [T, B, L, C] where:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 from typing import Optional
+
+from .snn_neuron import LIFNeuron
 
 
 class SNNMultiheadAttention(nn.Module):
@@ -28,10 +29,9 @@ class SNNMultiheadAttention(nn.Module):
         num_heads: Number of parallel attention heads
         dropout: Dropout probability
         qkv_bias: If True, add bias to Q, K, V projections
-        tau: Time constant for LIF neurons
-        v_threshold: Spike threshold for attention LIF neuron
         scale: Scaling factor for attention scores (default: 0.25)
-        backend: Backend for LIF neurons ('torch' or 'cupy')
+        neuron_cfg: Dictionary containing neuron configuration (spike_mode, tau,
+                   v_threshold, v_reset, detach_reset, backend, etc.)
     """
 
     def __init__(
@@ -40,10 +40,8 @@ class SNNMultiheadAttention(nn.Module):
         num_heads: int = 8,
         dropout: float = 0.0,
         qkv_bias: bool = False,
-        tau: float = 2.0,
-        v_threshold: float = 0.5,
         scale: float = 0.25,
-        backend: str = 'torch',
+        neuron_cfg: dict = None,
     ):
         super().__init__()
         assert embed_dim % num_heads == 0, f"embed_dim {embed_dim} must be divisible by num_heads {num_heads}"
@@ -53,31 +51,34 @@ class SNNMultiheadAttention(nn.Module):
         self.head_dim = embed_dim // num_heads
         self.scale = scale
 
+        if neuron_cfg is None:
+            neuron_cfg = {} 
+
         # Q projection
         self.q_linear = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
         self.q_bn = nn.BatchNorm1d(embed_dim)
-        self.q_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.q_lif = LIFNeuron(**neuron_cfg)
 
         # K projection
         self.k_linear = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
         self.k_bn = nn.BatchNorm1d(embed_dim)
-        self.k_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.k_lif = LIFNeuron(**neuron_cfg)
 
         # V projection
         self.v_linear = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
         self.v_bn = nn.BatchNorm1d(embed_dim)
-        self.v_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.v_lif = LIFNeuron(**neuron_cfg)
 
         # Attention dropout
         self.attn_drop = nn.Dropout(dropout)
 
         # Attention output LIF
-        self.attn_lif = MultiStepLIFNode(tau=tau, v_threshold=v_threshold, detach_reset=True, backend=backend)
+        self.attn_lif = LIFNeuron(**neuron_cfg)
 
         # Output projection
         self.out_linear = nn.Linear(embed_dim, embed_dim)
         self.out_bn = nn.BatchNorm1d(embed_dim)
-        self.out_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.out_lif = LIFNeuron(**neuron_cfg)
 
     def forward(
         self,
@@ -165,10 +166,9 @@ class SNNNeighborhoodAttention1D(nn.Module):
         dilation: Dilation for the neighborhood (default: 1)
         qkv_bias: If True, add bias to Q, K, V projections
         dropout: Dropout probability
-        tau: Time constant for LIF neurons
-        v_threshold: Spike threshold for attention LIF neuron
         scale: Scaling factor for attention scores (default: 0.25)
-        backend: Backend for LIF neurons ('torch' or 'cupy')
+        neuron_cfg: Dictionary containing neuron configuration (spike_mode, tau,
+                   v_threshold, v_reset, detach_reset, backend, etc.)
     """
 
     def __init__(
@@ -179,10 +179,8 @@ class SNNNeighborhoodAttention1D(nn.Module):
         dilation: int = 1,
         qkv_bias: bool = True,
         dropout: float = 0.0,
-        tau: float = 2.0,
-        v_threshold: float = 0.5,
         scale: float = 0.25,
-        backend: str = 'torch',
+        neuron_cfg: dict = None,
     ):
         super().__init__()
         assert dim % num_heads == 0, f"dim {dim} must be divisible by num_heads {num_heads}"
@@ -197,31 +195,34 @@ class SNNNeighborhoodAttention1D(nn.Module):
         # Calculate the window size (how many neighbors on each side)
         self.window_size = (kernel_size - 1) // 2
 
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
         # Q projection
         self.q_linear = nn.Linear(dim, dim, bias=qkv_bias)
         self.q_bn = nn.BatchNorm1d(dim)
-        self.q_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.q_lif = LIFNeuron(**neuron_cfg)
 
         # K projection
         self.k_linear = nn.Linear(dim, dim, bias=qkv_bias)
         self.k_bn = nn.BatchNorm1d(dim)
-        self.k_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.k_lif = LIFNeuron(**neuron_cfg)
 
         # V projection
         self.v_linear = nn.Linear(dim, dim, bias=qkv_bias)
         self.v_bn = nn.BatchNorm1d(dim)
-        self.v_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.v_lif = LIFNeuron(**neuron_cfg)
 
         # Attention dropout
         self.attn_drop = nn.Dropout(dropout)
 
         # Attention output LIF
-        self.attn_lif = MultiStepLIFNode(tau=tau, v_threshold=v_threshold, detach_reset=True, backend=backend)
+        self.attn_lif = LIFNeuron(**neuron_cfg)
 
         # Output projection
         self.out_linear = nn.Linear(dim, dim)
         self.out_bn = nn.BatchNorm1d(dim)
-        self.out_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.out_lif = LIFNeuron(**neuron_cfg)
 
     def _get_local_indices(self, L: int, device: torch.device):
         """

@@ -7,7 +7,8 @@ using SNN components.
 
 import torch
 import torch.nn as nn
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
+
+from ..layers.snn_neuron import LIFNeuron
 
 
 class SNNTrajectoryDecoder(nn.Module):
@@ -23,8 +24,7 @@ class SNNTrajectoryDecoder(nn.Module):
         num_modes,
         future_steps,
         out_channels,
-        tau=2.0,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
 
@@ -33,17 +33,20 @@ class SNNTrajectoryDecoder(nn.Module):
         self.future_steps = future_steps
         self.out_channels = out_channels
 
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
         # Multimodal projection
         self.multimodal_proj = nn.Linear(embed_dim, num_modes * embed_dim, bias=False)
         self.multimodal_bn = nn.BatchNorm1d(num_modes * embed_dim)
-        self.multimodal_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.multimodal_lif = LIFNeuron(**neuron_cfg)
 
         # Trajectory location prediction branch
         hidden = 2 * embed_dim
 
         self.loc_fc1 = nn.Linear(embed_dim, hidden, bias=False)
         self.loc_bn1 = nn.BatchNorm1d(hidden)
-        self.loc_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.loc_lif1 = LIFNeuron(**neuron_cfg)
 
         # Output layer (no activation)
         self.loc_fc2 = nn.Linear(hidden, future_steps * out_channels)
@@ -51,7 +54,7 @@ class SNNTrajectoryDecoder(nn.Module):
         # Mode probability prediction branch
         self.pi_fc1 = nn.Linear(embed_dim, hidden, bias=False)
         self.pi_bn1 = nn.BatchNorm1d(hidden)
-        self.pi_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.pi_lif1 = LIFNeuron(**neuron_cfg)
 
         # Output layer (no activation, will apply softmax later)
         self.pi_fc2 = nn.Linear(hidden, 1)

@@ -9,10 +9,10 @@ This module provides SNN-compatible versions of:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from spikingjelly.clock_driven.neuron import MultiStepLIFNode
 from timm.models.layers import DropPath
 
 from .snn_attention import SNNNeighborhoodAttention1D
+from .snn_neuron import LIFNeuron
 
 
 class SNNConvTokenizer(nn.Module):
@@ -23,11 +23,14 @@ class SNNConvTokenizer(nn.Module):
     Output: [T, B, L, C_out]
     """
 
-    def __init__(self, in_chans=3, embed_dim=32, tau=2.0, backend='torch'):
+    def __init__(self, in_chans=3, embed_dim=32, neuron_cfg=None):
         super().__init__()
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
         self.proj = nn.Conv1d(in_chans, embed_dim, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn = nn.BatchNorm1d(embed_dim)
-        self.lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif = LIFNeuron(**neuron_cfg)
 
     def forward(self, x):
         """
@@ -57,11 +60,14 @@ class SNNConvDownsampler(nn.Module):
     Output: [T, B, L//2, C*2]
     """
 
-    def __init__(self, dim, tau=2.0, backend='torch'):
+    def __init__(self, dim, neuron_cfg=None):
         super().__init__()
+        if neuron_cfg is None:
+            neuron_cfg = {}
+            
         self.reduction = nn.Conv1d(dim, 2 * dim, kernel_size=3, stride=2, padding=1, bias=False)
         self.bn = nn.BatchNorm1d(2 * dim)
-        self.lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif = LIFNeuron(**neuron_cfg)
 
     def forward(self, x):
         """
@@ -103,15 +109,17 @@ class SNNNATLayer(nn.Module):
         drop=0.0,
         attn_drop=0.0,
         drop_path=0.0,
-        tau=2.0,
         v_threshold=0.5,
         scale=0.25,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.mlp_ratio = mlp_ratio
+
+        if neuron_cfg is None:
+            neuron_cfg = {}
 
         # Note: We keep LayerNorm for pre-normalization
         self.norm1 = nn.LayerNorm(dim)
@@ -123,10 +131,8 @@ class SNNNATLayer(nn.Module):
             dilation=dilation if dilation is not None else 1,
             qkv_bias=qkv_bias,
             dropout=attn_drop,
-            tau=tau,
-            v_threshold=v_threshold,
             scale=scale,
-            backend=backend,
+            neuron_cfg=neuron_cfg,
         )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
@@ -136,12 +142,12 @@ class SNNNATLayer(nn.Module):
         hidden_features = int(dim * mlp_ratio)
         self.mlp_fc1 = nn.Linear(dim, hidden_features, bias=False)
         self.mlp_bn1 = nn.BatchNorm1d(hidden_features)
-        self.mlp_lif1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.mlp_lif1 = LIFNeuron(**neuron_cfg)
         self.mlp_drop1 = nn.Dropout(drop)
 
         self.mlp_fc2 = nn.Linear(hidden_features, dim, bias=False)
         self.mlp_bn2 = nn.BatchNorm1d(dim)
-        self.mlp_lif2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.mlp_lif2 = LIFNeuron(**neuron_cfg)
         self.mlp_drop2 = nn.Dropout(drop)
 
     def forward(self, x):
@@ -203,10 +209,9 @@ class SNNNATBlock(nn.Module):
         drop=0.0,
         attn_drop=0.0,
         drop_path=0.0,
-        tau=2.0,
         v_threshold=0.5,
         scale=0.25,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
         self.dim = dim
@@ -223,16 +228,14 @@ class SNNNATBlock(nn.Module):
                 drop=drop,
                 attn_drop=attn_drop,
                 drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                tau=tau,
-                v_threshold=v_threshold,
                 scale=scale,
-                backend=backend,
+                neuron_cfg=neuron_cfg,
             )
             for i in range(depth)
         ])
 
         self.downsample = (
-            None if not downsample else SNNConvDownsampler(dim=dim, tau=tau, backend=backend)
+            None if not downsample else SNNConvDownsampler(dim=dim, neuron_cfg=neuron_cfg)
         )
 
     def forward(self, x):
@@ -270,14 +273,16 @@ class SNNNATSequenceEncoder(nn.Module):
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.2,
-        tau=2.0,
         v_threshold=0.5,
         scale=0.25,
-        backend='torch',
+        neuron_cfg=None,
     ):
         super().__init__()
 
-        self.embed = SNNConvTokenizer(in_chans, embed_dim, tau=tau, backend=backend)
+        if neuron_cfg is None:
+            neuron_cfg = {}
+
+        self.embed = SNNConvTokenizer(in_chans, embed_dim, neuron_cfg=neuron_cfg)
         self.num_levels = len(depths)
         self.num_features = [int(embed_dim * 2**i) for i in range(self.num_levels)]
         self.out_indices = out_indices
@@ -298,10 +303,8 @@ class SNNNATSequenceEncoder(nn.Module):
                 attn_drop=attn_drop_rate,
                 drop_path=dpr[sum(depths[:i]): sum(depths[:i + 1])],
                 downsample=(i < self.num_levels - 1),
-                tau=tau,
-                v_threshold=v_threshold,
                 scale=scale,
-                backend=backend,
+                neuron_cfg=neuron_cfg,
             )
             self.levels.append(level)
 
@@ -321,7 +324,7 @@ class SNNNATSequenceEncoder(nn.Module):
 
         self.fpn_conv = nn.Conv1d(n, n, 3, padding=1, bias=False)
         self.fpn_bn = nn.BatchNorm1d(n)
-        self.fpn_lif = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.fpn_lif = LIFNeuron(**neuron_cfg)
 
     def forward(self, x):
         """
@@ -389,27 +392,30 @@ class SNNPointsEncoder(nn.Module):
     Output: [T, B, M, C_out]
     """
 
-    def __init__(self, feat_channel, encoder_channel, tau=2.0, backend='torch'):
+    def __init__(self, feat_channel, encoder_channel, neuron_cfg=None):
         super().__init__()
         self.encoder_channel = encoder_channel
+
+        if neuron_cfg is None:
+            neuron_cfg = {}
 
         # First MLP
         self.fc1_1 = nn.Linear(feat_channel, 128, bias=False)
         self.bn1_1 = nn.BatchNorm1d(128)
-        self.lif1_1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif1_1 = LIFNeuron(**neuron_cfg)
 
         self.fc1_2 = nn.Linear(128, 256, bias=False)
         self.bn1_2 = nn.BatchNorm1d(256)
-        self.lif1_2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif1_2 = LIFNeuron(**neuron_cfg)
 
         # Second MLP
         self.fc2_1 = nn.Linear(512, 256, bias=False)
         self.bn2_1 = nn.BatchNorm1d(256)
-        self.lif2_1 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif2_1 = LIFNeuron(**neuron_cfg)
 
         self.fc2_2 = nn.Linear(256, self.encoder_channel, bias=False)
         self.bn2_2 = nn.BatchNorm1d(self.encoder_channel)
-        self.lif2_2 = MultiStepLIFNode(tau=tau, detach_reset=True, backend=backend)
+        self.lif2_2 = LIFNeuron(**neuron_cfg)
 
     def forward(self, x, mask=None):
         """
