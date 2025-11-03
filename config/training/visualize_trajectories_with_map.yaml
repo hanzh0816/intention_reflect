@@ -1,0 +1,27 @@
+# @package _global_
+# Configuration for visualizing ego trajectories with map context
+# Each trajectory is saved as a separate image with the scene's map
+
+job_name: visualize_trajectories_with_map
+py_func: train  # Required for hydra config, but not used in visualization
+
+# Number of scenarios to sample and visualize
+num_scenarios_to_visualize: 10
+
+# Output directory for trajectory visualizations
+# Each scenario will be saved as a separate PNG file
+trajectory_output_dir: work_dirs/trajectory_visualizations
+
+# Map rendering parameters
+map_radius: 80.0  # Radius around ego vehicle to show map elements (meters)
+
+# Trajectory extraction parameters (following nuplan_feature_builder defaults)
+# These control the time horizon for extracting past and future ego trajectories
+history_horizon: 2.0      # Time horizon for past trajectory in seconds
+future_horizon: 8.0       # Time horizon for future trajectory in seconds
+sample_interval: 0.1      # Time interval between samples in seconds
+
+defaults:
+  - override /splitter: nuplan
+  - override /model: planTF
+  - override /scenario_filter: training_scenarios_1M
