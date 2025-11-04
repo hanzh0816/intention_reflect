@@ -8,6 +8,10 @@ py_func: train  # Required for hydra config, but not used in visualization
 # Number of scenarios to sample and visualize
 num_scenarios_to_visualize: 10
 
+# Optional: Filter scenarios by type (e.g., 'on_pickup_dropoff', 'near_multiple_vehicles', etc.)
+# If not specified, scenarios will be randomly sampled from all types
+# scenario_type: near_multiple_vehicles
+
 # Output directory for trajectory visualizations
 # Each scenario will be saved as a separate PNG file
 trajectory_output_dir: work_dirs/trajectory_visualizations

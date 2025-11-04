@@ -253,10 +253,14 @@ def main(cfg: DictConfig) -> None:
     num_scenarios_to_sample = cfg.get('num_scenarios_to_visualize', 10)
     output_dir = cfg.get('trajectory_output_dir', 'work_dirs/trajectory_visualizations')
     map_radius = cfg.get('map_radius', 80.0)
+    scenario_type_filter = cfg.get('scenario_type', None)  # Optional scenario type filter
 
     # Add timestamp to output directory
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_dir_with_timestamp = f"{output_dir}_{timestamp}"
+    current_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    if scenario_type_filter:
+        output_dir_with_timestamp = f"{output_dir}_{scenario_type_filter}_{current_timestamp}"
+    else:
+        output_dir_with_timestamp = f"{output_dir}_{current_timestamp}"
 
     # If output_dir is relative, make it relative to the original working directory
     if not Path(output_dir_with_timestamp).is_absolute():
@@ -275,8 +279,10 @@ def main(cfg: DictConfig) -> None:
     logger.info(f"Original working directory: {original_cwd}")
     logger.info(f"Current working directory: {current_cwd}")
     logger.info(f"Output directory: {output_dir_path}")
-    logger.info(f"Timestamp: {timestamp}")
+    logger.info(f"Timestamp: {current_timestamp}")
     logger.info(f"Will sample {num_scenarios_to_sample} scenarios")
+    if scenario_type_filter:
+        logger.info(f"Scenario type filter: {scenario_type_filter}")
     logger.info(f"Trajectory config: history={history_horizon}s, future={future_horizon}s, interval={sample_interval}s")
     logger.info(f"Map radius: {map_radius}m")
 
@@ -289,30 +295,36 @@ def main(cfg: DictConfig) -> None:
 
     logger.info(f"Total scenarios available: {len(all_scenarios)}")
 
-    # Filter for overtaking scenarios
-    overtaking_keywords = ['overtaking', 'overtake', 'passing']
-    overtaking_scenarios = [
-        scenario for scenario in all_scenarios
-        if any(keyword in scenario.scenario_type.lower() for keyword in overtaking_keywords)
-    ]
+    # Filter by scenario type if specified
+    if scenario_type_filter:
+        logger.info(f"Filtering scenarios by type: {scenario_type_filter}")
+        filtered_scenarios = [s for s in all_scenarios if s.scenario_type == scenario_type_filter]
+        logger.info(f"Found {len(filtered_scenarios)} scenarios matching type '{scenario_type_filter}'")
 
-    logger.info(f"Found {len(overtaking_scenarios)} overtaking scenarios out of {len(all_scenarios)} total")
+        if len(filtered_scenarios) == 0:
+            logger.error(f"No scenarios found with type '{scenario_type_filter}'")
+            logger.info("Available scenario types in dataset:")
+            scenario_types = set(s.scenario_type for s in all_scenarios)
+            for st in sorted(scenario_types):
+                count = sum(1 for s in all_scenarios if s.scenario_type == st)
+                logger.info(f"  - {st}: {count} scenarios")
+            return
 
-    # Use all overtaking scenarios (or limit if num_scenarios_to_visualize is set)
-    if num_scenarios_to_sample > 0 and num_scenarios_to_sample < len(overtaking_scenarios):
-        scenarios_to_process = random.sample(overtaking_scenarios, num_scenarios_to_sample)
-        logger.info(f"Processing {num_scenarios_to_sample} sampled overtaking scenarios")
+        scenarios_to_sample = filtered_scenarios
     else:
-        scenarios_to_process = overtaking_scenarios
-        logger.info(f"Processing all {len(overtaking_scenarios)} overtaking scenarios")
+        scenarios_to_sample = all_scenarios
+
+    # Sample a subset of scenarios
+    num_to_sample = min(num_scenarios_to_sample, len(scenarios_to_sample))
+    sampled_scenarios = random.sample(scenarios_to_sample, num_to_sample)
+
+    logger.info(f"Sampled {num_to_sample} scenarios")
 
     # Process each scenario separately
     successful_count = 0
-    num_to_process = len(scenarios_to_process)
-
-    for idx, scenario in enumerate(scenarios_to_process):
+    for idx, scenario in enumerate(sampled_scenarios):
         scenario_name = f"{scenario.scenario_type}_{scenario.token[:8]}"
-        logger.info(f"Processing scenario {idx + 1}/{num_to_process}: {scenario_name}")
+        logger.info(f"Processing scenario {idx + 1}/{num_to_sample}: {scenario_name}")
 
         try:
             # Extract trajectory
@@ -347,10 +359,9 @@ def main(cfg: DictConfig) -> None:
 
     # Summary
     logger.info(f"\nVisualization complete!")
-    logger.info(f"Successfully processed {successful_count}/{num_to_process} overtaking scenarios")
+    logger.info(f"Successfully processed {successful_count}/{num_to_sample} scenarios")
     logger.info(f"All visualizations saved to: {output_dir_path}")
-    print(f"\n✓ Successfully created {successful_count} overtaking trajectory visualizations")
-    print(f"✓ Total overtaking scenarios found: {len(overtaking_scenarios)}")
+    print(f"\n✓ Successfully created {successful_count} trajectory visualizations")
     print(f"✓ Output directory: {output_dir_path}\n")
 
 

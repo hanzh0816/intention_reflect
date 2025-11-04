@@ -12,41 +12,17 @@
 ## 文件说明
 
 - `visualize_ego_trajectories_with_map.py`: 主可视化脚本
-- `config/training/visualize_trajectories_with_map.yaml`: 通用可视化配置文件
-- `config/training/visualize_overtaking_scenarios.yaml`: 超车场景专用配置文件（推荐用于超车场景）
+- `config/training/visualize_trajectories_with_map.yaml`: 配置文件
 
 ## 使用方法
 
-### 基本使用（可视化所有场景类型）
+### 基本使用
 
 ```bash
 python visualize_ego_trajectories_with_map.py \
     +training=visualize_trajectories_with_map \
     scenario_builder=nuplan_mini \
     scenario_filter.limit_total_scenarios=10
-```
-
-### 可视化所有超车场景（推荐）
-
-```bash
-python visualize_ego_trajectories_with_map.py \
-    +training=visualize_overtaking_scenarios \
-    scenario_builder=nuplan \
-    scenario_filter.limit_total_scenarios=null
-```
-
-这将自动过滤并可视化数据集中的**所有超车场景**。
-
-### 可视化部分超车场景
-
-如果只想可视化部分超车场景（例如10个）：
-
-```bash
-python visualize_ego_trajectories_with_map.py \
-    +training=visualize_overtaking_scenarios \
-    scenario_builder=nuplan \
-    scenario_filter.limit_total_scenarios=1000 \
-    num_scenarios_to_visualize=10
 ```
 
 ### 自定义参数
@@ -61,40 +37,35 @@ python visualize_ego_trajectories_with_map.py \
     trajectory_output_dir=work_dirs/my_visualizations
 ```
 
-## 超车场景过滤
+### 按场景类型过滤
 
-脚本现在支持自动过滤超车场景。过滤逻辑：
+如果你只想可视化特定类型的场景（如超车、变道等），可以使用 `scenario_type` 参数：
 
-- **关键词匹配**：场景类型（`scenario_type`）包含以下任一关键词即被识别为超车场景：
-  - `overtaking`
-  - `overtake`
-  - `passing`
+```bash
+python visualize_ego_trajectories_with_map.py \
+    +training=visualize_trajectories_with_map \
+    scenario_builder=nuplan_mini \
+    scenario_filter.limit_total_scenarios=1000 \
+    scenario_type=near_multiple_vehicles \
+    num_scenarios_to_visualize=20
+```
 
-- **大小写不敏感**：匹配时忽略大小写
+此命令会从整个数据集中筛选出所有 `near_multiple_vehicles` 类型的场景，然后从中随机采样20个进行可视化。
 
-- **使用配置**：使用 `visualize_overtaking_scenarios.yaml` 配置文件
-
-- **输出目录**：超车场景默认保存到 `work_dirs/overtaking_visualizations_YYYYMMDD_HHMMSS/`
-
-### 工作流程
-
-1. 加载数据集中的所有场景
-2. 过滤出包含超车关键词的场景
-3. 根据 `num_scenarios_to_visualize` 参数：
-   - 如果设为 `0` 或大于超车场景总数：处理**所有**超车场景
-   - 如果设为具体数值：随机采样指定数量的超车场景
-4. 为每个场景生成带地图的轨迹可视化
+**注意**：使用 `scenario_type` 时，建议将 `scenario_filter.limit_total_scenarios` 设置较大，以确保加载足够多的场景进行筛选。
 
 ## 配置参数说明
 
 ### 可视化参数
 
-- `num_scenarios_to_visualize`: 要可视化的场景数量
-  - 设为 `0`：处理所有（超车）场景
-  - 设为具体数值（如 `10`）：只处理指定数量的场景
+- `num_scenarios_to_visualize`: 要可视化的场景数量（默认：10）
+- `scenario_type`: 可选，按场景类型过滤（默认：None，即不过滤）
+  - 可用的场景类型包括：`near_multiple_vehicles`、`following_lane`、`changing_lane` 等
+  - 如果指定，只会从匹配该类型的场景中采样
+  - 如果指定的类型不存在，脚本会显示数据集中所有可用的场景类型
 - `trajectory_output_dir`: 输出目录基础路径（默认：`work_dirs/trajectory_visualizations`）
-  - 注意：实际输出目录会自动添加时间戳后缀，格式为 `_YYYYMMDD_HHMMSS`
-  - 例如：`work_dirs/trajectory_visualizations_20250131_143025`
+  - 注意：实际输出目录会自动添加时间戳后缀，如 `work_dirs/trajectory_visualizations_20250131_143025`
+  - 如果指定了 `scenario_type`，目录名中会包含场景类型，如 `work_dirs/trajectory_visualizations_near_multiple_vehicles_20250131_143025`
 - `map_radius`: 地图显示半径，单位米（默认：80.0）
 
 ### 轨迹提取参数
@@ -107,7 +78,7 @@ python visualize_ego_trajectories_with_map.py \
 
 ### 输出目录结构
 
-输出目录自动添加运行时间戳（年月日_时分秒），例如：
+输出目录自动添加运行时间戳，例如：
 ```
 work_dirs/
 └── trajectory_visualizations_20250131_143025/
@@ -116,7 +87,16 @@ work_dirs/
     └── ...
 ```
 
-这样可以方便地区分不同运行时刻的可视化结果，避免覆盖，即使同一天运行多次也不会冲突。
+如果指定了 `scenario_type`，目录名会包含场景类型：
+```
+work_dirs/
+└── trajectory_visualizations_near_multiple_vehicles_20250131_143025/
+    ├── trajectory_000_near_multiple_vehicles_af3c2b1e.png
+    ├── trajectory_001_near_multiple_vehicles_9d4e5f2a.png
+    └── ...
+```
+
+时间戳格式为 `YYYYMMDD_HHMMSS`（年月日_时分秒），这样可以精确区分每次运行的结果，避免覆盖。
 
 ### 文件命名
 
@@ -170,12 +150,11 @@ trajectory_001_changing_lane_9d4e5f2a.png
 
 ## 注意事项
 
-1. **时间戳命名**：输出目录会自动添加运行时的时间戳（格式：YYYYMMDD_HHMMSS），每次运行会创建独立的时间戳目录
-2. **多次运行**：同一天运行多次也不会覆盖，每次运行都有唯一的时间戳标识
-3. **内存使用**：由于每个场景都需要加载地图数据，处理大量场景时可能需要较多内存
-4. **处理时间**：绘制地图元素需要额外时间，处理速度比原始脚本慢
-5. **坐标系统**：轨迹使用原始坐标（世界坐标系），与地图直接对应
-6. **归一化问题已解决**：轨迹不再归一化，直接使用原始坐标，因此可以正确叠加在地图上
+1. **时间戳命名**：输出目录会自动添加当前时间戳（格式：YYYYMMDD_HHMMSS），每次运行会创建新的时间戳目录
+2. **内存使用**：由于每个场景都需要加载地图数据，处理大量场景时可能需要较多内存
+3. **处理时间**：绘制地图元素需要额外时间，处理速度比原始脚本慢
+4. **坐标系统**：轨迹使用原始坐标（世界坐标系），与地图直接对应
+5. **归一化问题已解决**：轨迹不再归一化，直接使用原始坐标，因此可以正确叠加在地图上
 
 ## 故障排除
 
@@ -197,33 +176,9 @@ chmod 755 work_dirs
 
 ## 示例
 
-查看示例输出效果，请运行基本命令后检查 `work_dirs/trajectory_visualizations_YYYYMMDD_HHMMSS/` 目录。
+查看示例输出效果，请运行基本命令后检查 `work_dirs/trajectory_visualizations_YYYYMMDD_HHMMSS/` 目录（时间戳为运行时刻）。
 
 例如，2025年1月31日14:30:25运行后，输出目录为：
 ```
 work_dirs/trajectory_visualizations_20250131_143025/
-```
-
-时间戳格式说明：
-- `YYYYMMDD`: 年月日（例如：20250131）
-- `HHMMSS`: 时分秒（例如：143025 表示 14:30:25）
-
-### 超车场景可视化示例输出
-
-运行超车场景可视化后，输出如下：
-
-```
-✓ Successfully created 156 overtaking trajectory visualizations
-✓ Total overtaking scenarios found: 156
-✓ Output directory: /home/user/planTF/work_dirs/overtaking_visualizations_20250131_143025/
-```
-
-输出目录结构：
-```
-work_dirs/
-└── overtaking_visualizations_20250131_143025/
-    ├── trajectory_000_on_lane_overtaking_a1b2c3d4.png
-    ├── trajectory_001_on_lane_overtaking_e5f6g7h8.png
-    ├── trajectory_002_passing_vehicle_i9j0k1l2.png
-    └── ...
 ```
