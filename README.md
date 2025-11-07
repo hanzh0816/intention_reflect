@@ -28,6 +28,7 @@ This is the official repository of
 - [Trained models](#trained-models)
 - [Evaluation](#evaluation)
 - [Results](#results)
+- [Visualization Tools](#visualization-tools)
 - [Acknowledgements](#acknowledgements)
 - [Citation](#citation)
 
@@ -255,6 +256,34 @@ Place the trained models at `planTF/checkpoints/`
 | PlanCNN       | 64    | 73     | 72    |
 | PDM-Hybrid    | 84    | 93     | 92    |
 | PlanTF (Ours) | 89.18 | 84.83  | 76.78 |
+
+## Visualization Tools
+
+This repository provides trajectory visualization and short-term intent classification tools for analyzing NuPlan scenarios.
+
+### Features
+
+- **Trajectory Visualization**: Display ego vehicle trajectories with map context (lanes, boundaries, centerlines)
+- **Short-term Intent Classification**: Classify 2-second future trajectories into lateral and longitudinal intents
+  - **Lateral**: turn_left, turn_right, shift_left, shift_right, stay_in_lane
+  - **Longitudinal**: accelerate, maintain_speed, decelerate, stop
+- **Geometry-based**: Uses trajectory curvature, heading angle, and velocity changes (no dependency on lane IDs)
+- **Batch Processing**: Analyze multiple scenarios with statistical outputs
+
+### Quick Start
+
+```bash
+# Visualize 10 random scenarios with intent classification
+./run_short_term_intent.sh 10
+
+# Visualize specific scenario types
+./run_short_term_intent.sh 20 traversing_crosswalk
+./run_short_term_intent.sh 10 changing_lane_to_left
+```
+
+### Documentation
+
+For detailed usage instructions, algorithm principles, parameter tuning, and troubleshooting, see [VISUALIZATION_GUIDE.md](./VISUALIZATION_GUIDE.md).
 
 ## Acknowledgements
 
