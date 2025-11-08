@@ -1,176 +1,43 @@
-# Intent-Conditioned Trajectory Generation - Integration Guide
+# Intent-Conditioned Trajectory Generation
 
 ## Overview
 
-This document describes the integration of **intent-conditioned trajectory generation** into the PlanTF model. The system classifies ego vehicle intent from expert trajectories during training and uses predicted intents to condition trajectory generation.
+PlanTF模型集成了意图条件轨迹生成功能。系统从专家轨迹自动提取意图标签，并使用预测的意图来条件生成轨迹。
 
-## Architecture
+## Intent Categories
 
-### Intent-Conditioned Generation Flow
+**Lateral Intent** (5类):
+- `turn_left` (0): 急转左
+- `turn_right` (1): 急转右
+- `shift_left` (2): 缓变左
+- `shift_right` (3): 缓变右
+- `stay_in_lane` (4): 保持车道
 
-```
-Input Features
-    ↓
-Encoder
-    ↓
-    ├──────────────────────────┐
-    ↓                          ↓
-Intent Prediction          Trajectory Decoding
-(M=6 hypotheses)          (conditioned on intent)
-    ↓                          ↓
-[B,M,5] lateral           Intent Embeddings
-[B,M,4] longitudinal           ↓
-    ↓                     Conditioned Features
-    └──────────────────────────┘
-              ↓
-    [B, M=6, T, 4] trajectories
-```
-
-### Intent Categories
-
-**Lateral Intent** (5 classes):
-- `turn_left` (0): Sharp left turn (heading change > 15° + high curvature)
-- `turn_right` (1): Sharp right turn (heading change < -15° + high curvature)
-- `shift_left` (2): Gentle left lane change
-- `shift_right` (3): Gentle right lane change
-- `stay_in_lane` (4): Maintain current lane
-
-**Longitudinal Intent** (4 classes):
-- `accelerate` (0): Significant speed increase
-- `maintain_speed` (1): Constant velocity
-- `decelerate` (2): Significant speed decrease
-- `stop` (3): Coming to a halt
-
-## Implementation Details
-
-### 1. Intent Classification Utilities
-
-**File**: `src/utils/intent_classification.py`
-
-Core functions for extracting geometric features and classifying intent:
-
-```python
-from src.utils.intent_classification import (
-    classify_intent_from_states,
-    IntentClassificationConfig
-)
-
-# Example usage
-config = IntentClassificationConfig(
-    turn_angle_threshold=15.0,    # degrees
-    shift_angle_threshold=5.0,    # degrees
-    turn_curvature_threshold=0.05, # 1/meters
-    accel_threshold=1.0,          # m/s²
-)
-
-lateral, longitudinal = classify_intent_from_states(
-    ego_states=ego_states,
-    current_idx=0,
-    time_horizon=2.0,  # seconds
-    config=config
-)
-```
-
-### 2. Intent Target Builder
-
-**File**: `src/target_builders/intent_target_builder.py`
-
-Computes intent labels from expert trajectories during feature caching:
-
-```python
-class IntentTargetBuilder(AbstractTargetBuilder):
-    def __init__(
-        self,
-        time_horizon: float = 2.0,
-        sample_interval: float = 0.1,
-        config: IntentClassificationConfig = None
-    )
-
-    def get_targets(self, scenario: AbstractScenario) -> IntentLabels:
-        # Extracts ego trajectory and classifies intent
-        # Returns: IntentLabels(lateral_intent=idx, longitudinal_intent=idx)
-```
-
-### 3. Model Architecture Updates
-
-**File**: `src/models/planTF/planning_model.py`
-
-New model parameters:
-```python
-intent_enabled: bool = False           # Enable/disable intent conditioning
-intent_time_horizon: float = 2.0       # Time window for intent (2s/4s/8s)
-intent_embed_dim: int = 64             # Intent embedding dimension
-lateral_classes: int = 5               # Number of lateral classes
-longitudinal_classes: int = 4          # Number of longitudinal classes
-```
-
-New components:
-- `lateral_intent_head`: Predicts M lateral intent hypotheses
-- `longitudinal_intent_head`: Predicts M longitudinal intent hypotheses
-- `lateral_intent_embed`: Embedding layer for lateral intents
-- `longitudinal_intent_embed`: Embedding layer for longitudinal intents
-- `intent_fusion`: Fuses lateral + longitudinal embeddings
-
-Forward pass changes:
-1. Predict M intent hypotheses (one per trajectory mode)
-2. Convert to embeddings using Gumbel-Softmax (training) or argmax (inference)
-3. Add intent features to encoded features
-4. Decode trajectories conditioned on intent
-
-### 4. Training Loss Updates
-
-**File**: `src/models/planTF/lightning_trainer.py`
-
-Intent classification loss:
-```python
-# All M modes learn the same expert intent
-lateral_loss = CrossEntropy(predicted_lateral, expert_lateral)
-longitudinal_loss = CrossEntropy(predicted_longitudinal, expert_longitudinal)
-intent_loss = lateral_loss + longitudinal_loss
-
-total_loss = trajectory_loss + intent_loss_weight * intent_loss
-```
-
-## Configuration
-
-### Enable Intent-Conditioned Generation
-
-**File**: `config/model/planTF.yaml`
-
-```yaml
-# Set intent_enabled to true
-intent_enabled: true
-intent_time_horizon: 2.0  # Options: 2.0, 4.0, 8.0
-intent_embed_dim: 64
-lateral_classes: 5
-longitudinal_classes: 4
-```
-
-**File**: `config/custom_trainer/planTF.yaml`
-
-```yaml
-# Adjust loss weight
-intent_loss_weight: 1.0  # Recommended range: 0.5 - 2.0
-```
+**Longitudinal Intent** (4类):
+- `accelerate` (0): 加速
+- `maintain_speed` (1): 匀速
+- `decelerate` (2): 减速
+- `stop` (3): 停止
 
 ## Usage
 
-### 1. Feature Caching with Intent Labels
+### 1. 启用Intent功能
 
-When intent is enabled, intent labels are automatically computed during caching:
-
-```bash
-python run_training.py \
-  py_func=cache \
-  +training=train_planTF \
-  scenario_builder=nuplan \
-  cache.cache_path=/path/to/cache \
-  scenario_filter=training_scenarios_1M \
-  model.intent_enabled=true \
-  model.intent_time_horizon=2.0
+编辑 `config/model/planTF.yaml`:
+```yaml
+intent_enabled: true
+intent_time_horizon: 2.0  # 可选: 2.0, 4.0, 8.0
 ```
 
-### 2. Training with Intent Conditioning
+### 2. 生成缓存（包含intent标签）
+
+```bash
+./cache.sh
+```
+
+确保 `cache.sh` 中设置了 `model.intent_enabled=true`。
+
+### 3. 训练
 
 ```bash
 python run_training.py \
@@ -178,147 +45,84 @@ python run_training.py \
   +training=train_planTF \
   cache.cache_path=/path/to/cache \
   cache.use_cache_without_dataset=true \
-  model.intent_enabled=true \
-  model.intent_time_horizon=2.0 \
-  intent_loss_weight=1.0
+  model.intent_enabled=true
 ```
 
-### 3. Evaluation
+### 4. 验证缓存中的Intent标签
 
-During inference, the model:
-1. Predicts M intent hypotheses
-2. Generates M intent-conditioned trajectories
-3. Selects best trajectory based on probability
-
-Intent predictions are available in model output:
-```python
-output = model(features)
-# output["intent"]["lateral"]: [B, M, 5]
-# output["intent"]["longitudinal"]: [B, M, 4]
+```bash
+python check_intent_labels.py --cache_path /path/to/cache --max_samples 10
 ```
 
-## Hyperparameter Tuning
+## Configuration
 
-### Time Horizon
-- **2.0s** (default): Short-term intent, most stable
-- **4.0s**: Medium-term, captures lane changes
-- **8.0s**: Long-term, captures complete maneuvers
+### Model Config (`config/model/planTF.yaml`)
 
-### Intent Loss Weight
-- **0.5**: Prioritize trajectory accuracy
-- **1.0** (default): Balanced multi-task learning
-- **2.0**: Emphasize intent learning
-
-### Intent Embed Dimension
-- **32**: Lightweight, faster training
-- **64** (default): Good balance
-- **128**: More expressive, slower
-
-## Monitoring Training
-
-Key metrics to monitor:
-
-```
-objectives/train_intent_loss          # Overall intent loss
-objectives/train_lateral_intent_loss  # Lateral classification accuracy
-objectives/train_longitudinal_intent_loss  # Longitudinal classification accuracy
-objectives/train_reg_loss             # Trajectory regression loss
+```yaml
+intent_enabled: true          # 启用/禁用intent功能
+intent_time_horizon: 2.0      # 意图分类时间窗口(秒)
+intent_embed_dim: 64          # 意图嵌入维度
+lateral_classes: 5            # 横向意图类别数
+longitudinal_classes: 4       # 纵向意图类别数
 ```
 
-Expected behavior:
-- Intent losses should decrease steadily
-- Trajectory losses should remain comparable to baseline
-- Classification accuracy should reach >80% within a few epochs
+### Trainer Config (`config/custom_trainer/planTF.yaml`)
 
-## File Structure
+```yaml
+intent_loss_weight: 1.0       # 意图分类loss权重
+```
+
+### Lightning Config (`config/lightning/custom_lightning.yaml`)
+
+```yaml
+strategy: ddp_find_unused_parameters_true  # Intent模式需要设置为true
+```
+
+## Hyperparameters
+
+**时间窗口**:
+- 2.0s (推荐): 短期意图，最稳定
+- 4.0s: 中期意图
+- 8.0s: 长期意图
+
+**Intent Loss权重**:
+- 0.5: 优先轨迹精度
+- 1.0 (默认): 平衡
+- 2.0: 强调意图学习
+
+## Architecture
+
+```
+Input → Encoder → Intent Prediction (M modes)
+                → Intent Embeddings
+                → Conditioned Features
+                → Trajectory Decoder
+                → M intent-conditioned trajectories
+```
+
+**训练**: 所有M个modes学习相同的expert intent（交叉熵loss）
+
+## Files
 
 ```
 src/
-├── utils/
-│   └── intent_classification.py      # Intent classification utilities
-├── features/
-│   └── intent_labels.py               # IntentLabels feature class
-├── target_builders/
-│   ├── __init__.py
-│   └── intent_target_builder.py       # Intent target builder
+├── utils/intent_classification.py         # 意图分类核心逻辑
+├── features/intent_labels.py              # IntentLabels特征类
+├── target_builders/intent_target_builder.py  # 意图目标构建器
 └── models/planTF/
-    ├── planning_model.py              # Updated model with intent conditioning
-    └── lightning_trainer.py           # Updated training loop with intent loss
+    ├── planning_model.py                  # 模型架构（intent heads + embeddings）
+    └── lightning_trainer.py               # 训练逻辑（intent loss）
 
 config/
-├── model/
-│   └── planTF.yaml                    # Model config with intent parameters
-└── custom_trainer/
-    └── planTF.yaml                    # Trainer config with intent_loss_weight
+├── model/planTF.yaml                      # intent参数配置
+├── custom_trainer/planTF.yaml             # loss权重配置
+└── lightning/custom_lightning.yaml        # DDP配置
+
+check_intent_labels.py                     # 验证缓存工具
 ```
 
-## Troubleshooting
+## Notes
 
-### Issue: Intent loss not decreasing
-
-**Solution**:
-- Check if intent labels are being loaded correctly
-- Verify target_builders includes IntentTargetBuilder
-- Increase intent_loss_weight
-
-### Issue: Trajectory performance degraded
-
-**Solution**:
-- Reduce intent_loss_weight to 0.5
-- Try shorter time_horizon (2.0s instead of 8.0s)
-- Check if intent labels distribution is balanced
-
-### Issue: Out of memory during training
-
-**Solution**:
-- Reduce intent_embed_dim to 32
-- Disable intent temporarily during debugging
-- Reduce batch size
-
-## Future Extensions
-
-### 1. Per-mode Intent Targets (Optional)
-
-Currently, all modes learn the same expert intent. To enable diverse intent hypotheses:
-
-```python
-# Modify _compute_objectives in lightning_trainer.py
-# Use soft labels based on trajectory similarity
-weights = compute_mode_weights(trajectory, ego_target)
-lateral_loss = weighted_cross_entropy(lateral_logits, lateral_target, weights)
-```
-
-### 2. Agent Intent Prediction
-
-Extend to predict intents for surrounding agents:
-
-```python
-# In IntentTargetBuilder
-def get_targets(self, scenario):
-    # Classify ego intent (existing)
-    # Classify agent intents (new)
-    for agent in tracked_objects:
-        agent_intent = classify_agent_intent(agent.trajectory)
-```
-
-### 3. Hierarchical Intent
-
-Add high-level maneuver categories:
-
-```python
-# Maneuver types: parking, lane_change, turning, cruising
-maneuver_intent_head = nn.Linear(dim, num_modes * maneuver_classes)
-```
-
-## References
-
-- Intent classification based on: `visualize_short_term_intent.py`
-- Geometric features: curvature, heading change, velocity change
-- Training framework: NuPlan devkit
-
-## Contact
-
-For questions or issues, please refer to:
-- [VISUALIZATION_GUIDE.md](./VISUALIZATION_GUIDE.md) for intent classification details
-- PlanTF model documentation
-- NuPlan devkit documentation
+- Intent模式下 `trajectory_decoder.multimodal_proj` 不被使用（正常现象）
+- 需要设置 `strategy: ddp_find_unused_parameters_true`
+- 缓存数据必须包含intent标签（使用`intent_enabled=true`生成）

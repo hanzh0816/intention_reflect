@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 from nuplan.planning.training.modeling.torch_module_wrapper import TorchModuleWrapper
 from nuplan.planning.training.preprocessing.target_builders.ego_trajectory_target_builder import (
