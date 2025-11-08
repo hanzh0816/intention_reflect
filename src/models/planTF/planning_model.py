@@ -7,6 +7,7 @@ from nuplan.planning.training.preprocessing.target_builders.ego_trajectory_targe
 )
 
 from src.feature_builders.nuplan_feature_builder import NuplanFeatureBuilder
+from src.target_builders.intent_target_builder import IntentTargetBuilder
 
 from .layers.common_layers import build_mlp
 from .layers.transformer_encoder_layer import TransformerEncoderLayer
@@ -35,16 +36,39 @@ class PlanningModel(TorchModuleWrapper):
         state_attn_encoder=True,
         state_dropout=0.75,
         feature_builder: NuplanFeatureBuilder = NuplanFeatureBuilder(),
+        # Intent-related parameters
+        intent_enabled=False,
+        intent_time_horizon=2.0,
+        intent_embed_dim=64,
+        lateral_classes=5,
+        longitudinal_classes=4,
     ) -> None:
+        # Build target builders list
+        target_builders_list = [EgoTrajectoryTargetBuilder(trajectory_sampling)]
+        if intent_enabled:
+            target_builders_list.append(
+                IntentTargetBuilder(
+                    time_horizon=intent_time_horizon,
+                    sample_interval=0.1
+                )
+            )
+
         super().__init__(
             feature_builders=[feature_builder],
-            target_builders=[EgoTrajectoryTargetBuilder(trajectory_sampling)],
+            target_builders=target_builders_list,
             future_trajectory_sampling=trajectory_sampling,
         )
 
         self.dim = dim
         self.history_steps = history_steps
         self.future_steps = future_steps
+        self.num_modes = num_modes
+
+        # Intent-related attributes
+        self.intent_enabled = intent_enabled
+        self.intent_embed_dim = intent_embed_dim
+        self.lateral_classes = lateral_classes
+        self.longitudinal_classes = longitudinal_classes
 
         self.pos_emb = build_mlp(4, [dim] * 2)
         self.agent_encoder = AgentEncoder(
@@ -76,6 +100,19 @@ class PlanningModel(TorchModuleWrapper):
             out_channels=4,
         )
         self.agent_predictor = build_mlp(dim, [dim * 2, future_steps * 2], norm="ln")
+
+        # Intent prediction heads and embeddings
+        if self.intent_enabled:
+            # Intent prediction: predict M intent hypotheses (one per trajectory mode)
+            self.lateral_intent_head = nn.Linear(dim, num_modes * lateral_classes)
+            self.longitudinal_intent_head = nn.Linear(dim, num_modes * longitudinal_classes)
+
+            # Intent embeddings: convert predicted intent to embeddings
+            self.lateral_intent_embed = nn.Embedding(lateral_classes, intent_embed_dim)
+            self.longitudinal_intent_embed = nn.Embedding(longitudinal_classes, intent_embed_dim)
+
+            # Fusion layer: combine lateral + longitudinal embeddings -> dim
+            self.intent_fusion = nn.Linear(intent_embed_dim * 2, dim)
 
         self.apply(self._init_weights)
 
@@ -122,14 +159,82 @@ class PlanningModel(TorchModuleWrapper):
             x = blk(x, key_padding_mask=key_padding_mask)
         x = self.norm(x)
 
-        trajectory, probability = self.trajectory_decoder(x[:, 0])
-        prediction = self.agent_predictor(x[:, 1:A]).view(bs, -1, self.future_steps, 2)
+        # Extract ego feature (first token)
+        ego_feature = x[:, 0]  # [B, dim]
 
-        out = {
-            "trajectory": trajectory,
-            "probability": probability,
-            "prediction": prediction,
-        }
+        # Intent-conditioned trajectory generation
+        if self.intent_enabled:
+            # Predict M intent hypotheses (one per mode)
+            lateral_logits = self.lateral_intent_head(ego_feature)  # [B, M*C_lat]
+            longitudinal_logits = self.longitudinal_intent_head(ego_feature)  # [B, M*C_long]
+
+            # Reshape to [B, M, C]
+            lateral_logits = lateral_logits.view(bs, self.num_modes, self.lateral_classes)
+            longitudinal_logits = longitudinal_logits.view(bs, self.num_modes, self.longitudinal_classes)
+
+            # Get predicted intent indices (for embedding lookup)
+            if self.training:
+                # During training, use gumbel softmax for differentiable sampling
+                lateral_probs = F.gumbel_softmax(lateral_logits, tau=1.0, hard=True)  # [B, M, C_lat]
+                longitudinal_probs = F.gumbel_softmax(longitudinal_logits, tau=1.0, hard=True)  # [B, M, C_long]
+
+                lateral_indices = lateral_probs.argmax(dim=-1)  # [B, M]
+                longitudinal_indices = longitudinal_probs.argmax(dim=-1)  # [B, M]
+            else:
+                # During inference, use argmax
+                lateral_indices = lateral_logits.argmax(dim=-1)  # [B, M]
+                longitudinal_indices = longitudinal_logits.argmax(dim=-1)  # [B, M]
+
+            # Compute intent embeddings
+            lateral_embeds = self.lateral_intent_embed(lateral_indices)  # [B, M, intent_embed_dim]
+            longitudinal_embeds = self.longitudinal_intent_embed(longitudinal_indices)  # [B, M, intent_embed_dim]
+
+            # Fuse lateral and longitudinal embeddings
+            intent_embeds = torch.cat([lateral_embeds, longitudinal_embeds], dim=-1)  # [B, M, 2*intent_embed_dim]
+            intent_features = self.intent_fusion(intent_embeds)  # [B, M, dim]
+
+            # Add intent features to ego feature for each mode
+            ego_feature_expanded = ego_feature.unsqueeze(1).expand(-1, self.num_modes, -1)  # [B, M, dim]
+            conditioned_features = ego_feature_expanded + intent_features  # [B, M, dim]
+
+            # Decode trajectories from conditioned features
+            # Reshape to [B*M, dim] for decoder
+            conditioned_features_flat = conditioned_features.view(bs * self.num_modes, self.dim)
+
+            # Use modified decoder forward (treating each mode independently)
+            trajectory_flat = []
+            probability_flat = []
+            for i in range(self.num_modes):
+                feat = conditioned_features[:, i, :]  # [B, dim]
+                # Directly predict trajectory for this mode
+                loc = self.trajectory_decoder.loc(feat).view(bs, 1, self.future_steps, 4)  # [B, 1, T, 4]
+                pi = self.trajectory_decoder.pi(feat).squeeze(-1)  # [B]
+                trajectory_flat.append(loc)
+                probability_flat.append(pi)
+
+            trajectory = torch.cat(trajectory_flat, dim=1)  # [B, M, T, 4]
+            probability = torch.stack(probability_flat, dim=1)  # [B, M]
+
+            # Add intent predictions to output
+            out = {
+                "trajectory": trajectory,
+                "probability": probability,
+                "prediction": self.agent_predictor(x[:, 1:A]).view(bs, -1, self.future_steps, 2),
+                "intent": {
+                    "lateral": lateral_logits,  # [B, M, C_lat]
+                    "longitudinal": longitudinal_logits,  # [B, M, C_long]
+                }
+            }
+        else:
+            # Original trajectory decoding (no intent conditioning)
+            trajectory, probability = self.trajectory_decoder(ego_feature)
+            prediction = self.agent_predictor(x[:, 1:A]).view(bs, -1, self.future_steps, 2)
+
+            out = {
+                "trajectory": trajectory,
+                "probability": probability,
+                "prediction": prediction,
+            }
 
         if not self.training:
             best_mode = probability.argmax(dim=-1)
