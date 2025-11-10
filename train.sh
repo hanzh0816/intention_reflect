@@ -8,4 +8,8 @@ python run_training.py \
     +training=train_planTF \
     cache.cache_path=/data2/hzh/nuplan/exp/cache_plantf_1M \
     cache.use_cache_without_dataset=true \
-    model.intent_enabled=true
+    model.intent_enabled=true \
+    data_loader.params.batch_size=8 \
+    wandb.mode=online \
+    wandb.project=planTF \
+    wandb.name=intent_training
