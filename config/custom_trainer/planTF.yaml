@@ -1,1 +1,4 @@
 _target_: src.models.planTF.lightning_trainer.LightningTrainer
+
+# Intent classification loss weight
+intent_loss_weight: 1.0  # Weight for intent classification loss (only used when intent_enabled=true in model config)

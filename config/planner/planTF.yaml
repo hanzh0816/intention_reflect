@@ -22,6 +22,13 @@ imitation_planner:
     use_ego_history: false
     state_attn_encoder: true
 
+    # Intent-conditioned generation parameters
+    intent_enabled: true # Set to true to enable intent-conditioned trajectory generation
+    intent_time_horizon: 2.0 # Time window for intent classification (seconds), options: 2.0, 4.0, 8.0
+    intent_embed_dim: 64 # Dimension of intent embeddings
+    lateral_classes: 5 # Number of lateral intent classes (turn_left, turn_right, shift_left, shift_right, stay_in_lane)
+    longitudinal_classes: 4 # Number of longitudinal intent classes (accelerate, maintain_speed, decelerate, stop)
+
     feature_builder:
       _target_: src.feature_builders.nuplan_feature_builder.NuplanFeatureBuilder
       _convert_: "all"

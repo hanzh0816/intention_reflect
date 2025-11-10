@@ -30,6 +30,7 @@ class LightningTrainer(pl.LightningModule):
         weight_decay,
         epochs,
         warmup_epochs,
+        intent_loss_weight=1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -39,6 +40,7 @@ class LightningTrainer(pl.LightningModule):
         self.weight_decay = weight_decay
         self.epochs = epochs
         self.warmup_epochs = warmup_epochs
+        self.intent_loss_weight = intent_loss_weight
 
     def on_fit_start(self) -> None:
         metrics_collection = MetricCollection(
@@ -58,25 +60,25 @@ class LightningTrainer(pl.LightningModule):
     def _step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], prefix: str
     ) -> torch.Tensor:
-        features, _, _ = batch
+        features, targets, _ = batch
         res = self.forward(features["feature"].data)
 
-        losses = self._compute_objectives(res, features["feature"].data)
+        losses = self._compute_objectives(res, features["feature"].data, targets)
         metrics = self._compute_metrics(res, features["feature"].data, prefix)
         self._log_step(losses["loss"], losses, metrics, prefix)
 
         return losses["loss"]
 
-    def _compute_objectives(self, res, data) -> Dict[str, torch.Tensor]:
+    def _compute_objectives(self, res, data, targets=None) -> Dict[str, torch.Tensor]:
         trajectory, probability, prediction = (
             res["trajectory"],
             res["probability"],
             res["prediction"],
         )
-        targets = data["agent"]["target"]
+        traj_targets = data["agent"]["target"]
         valid_mask = data["agent"]["valid_mask"][:, :, -trajectory.shape[-2] :]
 
-        ego_target_pos, ego_target_heading = targets[:, 0, :, :2], targets[:, 0, :, 2]
+        ego_target_pos, ego_target_heading = traj_targets[:, 0, :, :2], traj_targets[:, 0, :, 2]
         ego_target = torch.cat(
             [
                 ego_target_pos,
@@ -86,7 +88,7 @@ class LightningTrainer(pl.LightningModule):
             ],
             dim=-1,
         )
-        agent_target, agent_mask = targets[:, 1:], valid_mask[:, 1:]
+        agent_target, agent_mask = traj_targets[:, 1:], valid_mask[:, 1:]
 
         ade = torch.norm(trajectory[..., :2] - ego_target[:, None, :, :2], dim=-1)
         best_mode = torch.argmin(ade.sum(-1), dim=-1)
@@ -100,12 +102,52 @@ class LightningTrainer(pl.LightningModule):
 
         loss = ego_reg_loss + ego_cls_loss + agent_reg_loss
 
-        return {
+        objectives_dict = {
             "loss": loss,
             "reg_loss": ego_reg_loss,
             "cls_loss": ego_cls_loss,
             "prediction_loss": agent_reg_loss,
         }
+
+        # Intent classification loss (if enabled)
+        if "intent" in res and targets is not None and "intent" in targets:
+            intent_labels = targets["intent"]
+            lateral_target = intent_labels.lateral_intent  # [B]
+            longitudinal_target = intent_labels.longitudinal_intent  # [B]
+
+            lateral_logits = res["intent"]["lateral"]  # [B, M, C_lat]
+            longitudinal_logits = res["intent"]["longitudinal"]  # [B, M, C_long]
+
+            B, M, C_lat = lateral_logits.shape
+            _, _, C_long = longitudinal_logits.shape
+
+            # Expand targets for all modes: [B] -> [B, M]
+            # All modes should predict the same expert intent
+            lateral_target_expanded = lateral_target.unsqueeze(1).expand(-1, M)  # [B, M]
+            longitudinal_target_expanded = longitudinal_target.unsqueeze(1).expand(-1, M)  # [B, M]
+
+            # Compute cross-entropy loss for each mode
+            lateral_loss = F.cross_entropy(
+                lateral_logits.reshape(B * M, C_lat),  # [B*M, C_lat]
+                lateral_target_expanded.reshape(B * M)  # [B*M]
+            )
+            longitudinal_loss = F.cross_entropy(
+                longitudinal_logits.reshape(B * M, C_long),  # [B*M, C_long]
+                longitudinal_target_expanded.reshape(B * M)  # [B*M]
+            )
+
+            intent_loss = lateral_loss + longitudinal_loss
+
+            # Add to total loss
+            loss = loss + self.intent_loss_weight * intent_loss
+
+            # Update objectives dict
+            objectives_dict["loss"] = loss
+            objectives_dict["intent_loss"] = intent_loss
+            objectives_dict["lateral_intent_loss"] = lateral_loss
+            objectives_dict["longitudinal_intent_loss"] = longitudinal_loss
+
+        return objectives_dict
 
     def _compute_metrics(self, output, data, prefix) -> Dict[str, torch.Tensor]:
         metrics = self.metrics[prefix](output, data["agent"]["target"][:, 0])

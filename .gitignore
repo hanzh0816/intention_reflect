@@ -161,4 +161,6 @@ wandb/
 outputs/
 *.ckpt
 checkpoints/
+
 work_dirs/
+nuplan-devkit/
