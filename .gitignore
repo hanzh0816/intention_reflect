@@ -162,4 +162,5 @@ outputs/
 *.ckpt
 checkpoints/
 
-work_dirs/nuplan-devkit/
+work_dirs/
+nuplan-devkit/
