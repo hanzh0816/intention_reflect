@@ -4,33 +4,53 @@ import torch.nn.functional as F
 
 
 class TrajectoryDecoder(nn.Module):
-    def __init__(self, embed_dim, num_modes, future_steps, out_channels) -> None:
+    """
+    Single-mode trajectory decoder for intent-conditioned planning.
+
+    Takes concatenated [ego_feature; intention_feature] and decodes to a single trajectory.
+    """
+
+    def __init__(self, embed_dim, future_steps, out_channels) -> None:
+        """
+        Initialize Trajectory Decoder.
+
+        Args:
+            embed_dim: Dimension of input features (should be 2*ego_dim for concatenated features)
+            future_steps: Number of future timesteps to predict
+            out_channels: Number of output channels per timestep (typically 4 for x,y,cos,sin)
+        """
         super().__init__()
 
         self.embed_dim = embed_dim
-        self.num_modes = num_modes
         self.future_steps = future_steps
         self.out_channels = out_channels
 
-        self.multimodal_proj = nn.Linear(embed_dim, num_modes * embed_dim)
+        # Project concatenated features to intermediate dimension
+        self.input_proj = nn.Linear(embed_dim, embed_dim // 2)
 
-        hidden = 2 * embed_dim
+        # Trajectory prediction head
+        hidden = embed_dim  # Use full embed_dim for hidden layer
         self.loc = nn.Sequential(
-            nn.Linear(embed_dim, hidden),
+            nn.Linear(embed_dim // 2, hidden),
             nn.LayerNorm(hidden),
             nn.ReLU(inplace=True),
             nn.Linear(hidden, future_steps * out_channels),
         )
-        self.pi = nn.Sequential(
-            nn.Linear(embed_dim, hidden),
-            nn.LayerNorm(hidden),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden, 1),
-        )
 
     def forward(self, x):
-        x = self.multimodal_proj(x).view(-1, self.num_modes, self.embed_dim)
-        loc = self.loc(x).view(-1, self.num_modes, self.future_steps, self.out_channels)
-        pi = self.pi(x).squeeze(-1)
+        """
+        Forward pass.
 
-        return loc, pi
+        Args:
+            x: Concatenated feature tensor [B, embed_dim]
+
+        Returns:
+            trajectory: Single-mode trajectory [B, future_steps, out_channels]
+        """
+        # Project input
+        x = self.input_proj(x)
+
+        # Predict trajectory
+        trajectory = self.loc(x).view(-1, self.future_steps, self.out_channels)
+
+        return trajectory

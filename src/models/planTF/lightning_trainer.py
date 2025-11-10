@@ -2,6 +2,7 @@ import logging
 import os
 from typing import Dict, Tuple, Union
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -18,6 +19,7 @@ from torchmetrics import MetricCollection
 
 from src.metrics import MR, minADE, minFDE
 from src.optim.warmup_cos_lr import WarmupCosLR
+from src.utils.intent_classification import classify_intent_from_trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ class LightningTrainer(pl.LightningModule):
         epochs,
         warmup_epochs,
         intent_loss_weight=1.0,
+        consistency_loss_weight=1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -41,14 +44,14 @@ class LightningTrainer(pl.LightningModule):
         self.epochs = epochs
         self.warmup_epochs = warmup_epochs
         self.intent_loss_weight = intent_loss_weight
+        self.consistency_loss_weight = consistency_loss_weight
 
     def on_fit_start(self) -> None:
+        # Single-mode metrics (no multi-modal k=6 anymore)
         metrics_collection = MetricCollection(
             {
-                "minADE1": minADE(k=1).to(self.device),
-                "minADE6": minADE(k=6).to(self.device),
-                "minFDE1": minFDE(k=1).to(self.device),
-                "minFDE6": minFDE(k=6).to(self.device),
+                "ADE": minADE(k=1).to(self.device),
+                "FDE": minFDE(k=1).to(self.device),
                 "MR": MR().to(self.device),
             }
         )
@@ -70,14 +73,22 @@ class LightningTrainer(pl.LightningModule):
         return losses["loss"]
 
     def _compute_objectives(self, res, data, targets=None) -> Dict[str, torch.Tensor]:
-        trajectory, probability, prediction = (
-            res["trajectory"],
-            res["probability"],
-            res["prediction"],
-        )
+        """
+        Compute loss with new single-mode intent-conditioned architecture.
+
+        Loss components:
+        1. L_trajectory: L1 loss between predicted and ground truth trajectory
+        2. L_intent_cls: Cross-entropy for intent classification (lateral + longitudinal)
+        3. L_consistency: Consistency between reclassified trajectory and predicted intent
+        4. L_agent: Agent prediction loss (unchanged)
+        """
+        trajectory = res["trajectory"]  # [B, T, 4] - single mode
+        prediction = res["prediction"]  # [B, A-1, T, 2]
+
         traj_targets = data["agent"]["target"]
         valid_mask = data["agent"]["valid_mask"][:, :, -trajectory.shape[-2] :]
 
+        # Ground truth ego trajectory
         ego_target_pos, ego_target_heading = traj_targets[:, 0, :, :2], traj_targets[:, 0, :, 2]
         ego_target = torch.cat(
             [
@@ -87,65 +98,87 @@ class LightningTrainer(pl.LightningModule):
                 ),
             ],
             dim=-1,
-        )
+        )  # [B, T, 4]
+
         agent_target, agent_mask = traj_targets[:, 1:], valid_mask[:, 1:]
 
-        ade = torch.norm(trajectory[..., :2] - ego_target[:, None, :, :2], dim=-1)
-        best_mode = torch.argmin(ade.sum(-1), dim=-1)
-        best_traj = trajectory[torch.arange(trajectory.shape[0]), best_mode]
-        ego_reg_loss = F.smooth_l1_loss(best_traj, ego_target)
-        ego_cls_loss = F.cross_entropy(probability, best_mode.detach())
+        # === 1. Trajectory Loss ===
+        trajectory_loss = F.l1_loss(trajectory, ego_target)
 
-        agent_reg_loss = F.smooth_l1_loss(
+        # === 2. Agent Prediction Loss (unchanged) ===
+        agent_loss = F.smooth_l1_loss(
             prediction[agent_mask], agent_target[agent_mask][:, :2]
         )
 
-        loss = ego_reg_loss + ego_cls_loss + agent_reg_loss
-
+        # Initialize objectives dict
         objectives_dict = {
-            "loss": loss,
-            "reg_loss": ego_reg_loss,
-            "cls_loss": ego_cls_loss,
-            "prediction_loss": agent_reg_loss,
+            "trajectory_loss": trajectory_loss,
+            "agent_loss": agent_loss,
         }
 
-        # Intent classification loss (if enabled)
+        total_loss = trajectory_loss + agent_loss
+
+        # === 3. Intent Classification Loss ===
         if "intent" in res and targets is not None and "intent" in targets:
             intent_labels = targets["intent"]
             lateral_target = intent_labels.lateral_intent  # [B]
             longitudinal_target = intent_labels.longitudinal_intent  # [B]
 
-            lateral_logits = res["intent"]["lateral"]  # [B, M, C_lat]
-            longitudinal_logits = res["intent"]["longitudinal"]  # [B, M, C_long]
+            lateral_logits = res["intent"]["lateral"]  # [B, C_lat]
+            longitudinal_logits = res["intent"]["longitudinal"]  # [B, C_long]
 
-            B, M, C_lat = lateral_logits.shape
-            _, _, C_long = longitudinal_logits.shape
+            # Intent classification loss: CE(A_pred, A_gt)
+            lateral_intent_loss = F.cross_entropy(lateral_logits, lateral_target)
+            longitudinal_intent_loss = F.cross_entropy(longitudinal_logits, longitudinal_target)
+            intent_cls_loss = lateral_intent_loss + longitudinal_intent_loss
 
-            # Expand targets for all modes: [B] -> [B, M]
-            # All modes should predict the same expert intent
-            lateral_target_expanded = lateral_target.unsqueeze(1).expand(-1, M)  # [B, M]
-            longitudinal_target_expanded = longitudinal_target.unsqueeze(1).expand(-1, M)  # [B, M]
+            total_loss = total_loss + self.intent_loss_weight * intent_cls_loss
 
-            # Compute cross-entropy loss for each mode
-            lateral_loss = F.cross_entropy(
-                lateral_logits.reshape(B * M, C_lat),  # [B*M, C_lat]
-                lateral_target_expanded.reshape(B * M)  # [B*M]
+            objectives_dict["intent_cls_loss"] = intent_cls_loss
+            objectives_dict["lateral_intent_loss"] = lateral_intent_loss
+            objectives_dict["longitudinal_intent_loss"] = longitudinal_intent_loss
+
+            # === 4. Consistency Loss: Reclassify predicted trajectory ===
+            # Detach predicted intent to stop gradient flow
+            lateral_pred_detached = lateral_logits.detach()
+            longitudinal_pred_detached = longitudinal_logits.detach()
+
+            # Reclassify predicted trajectories
+            batch_size = trajectory.shape[0]
+            lateral_reclassified = []
+            longitudinal_reclassified = []
+
+            for i in range(batch_size):
+                traj_i = trajectory[i].detach().cpu().numpy()  # [T, 4]
+                lat_idx, long_idx = classify_intent_from_trajectory(
+                    traj_i, dt=0.1, time_horizon=2.0
+                )
+                lateral_reclassified.append(lat_idx)
+                longitudinal_reclassified.append(long_idx)
+
+            lateral_reclassified = torch.tensor(
+                lateral_reclassified, dtype=torch.long, device=trajectory.device
+            )  # [B]
+            longitudinal_reclassified = torch.tensor(
+                longitudinal_reclassified, dtype=torch.long, device=trajectory.device
+            )  # [B]
+
+            # Consistency loss: CE(A_reclassified, A_pred.detach())
+            lateral_consistency_loss = F.cross_entropy(
+                lateral_pred_detached, lateral_reclassified
             )
-            longitudinal_loss = F.cross_entropy(
-                longitudinal_logits.reshape(B * M, C_long),  # [B*M, C_long]
-                longitudinal_target_expanded.reshape(B * M)  # [B*M]
+            longitudinal_consistency_loss = F.cross_entropy(
+                longitudinal_pred_detached, longitudinal_reclassified
             )
+            consistency_loss = lateral_consistency_loss + longitudinal_consistency_loss
 
-            intent_loss = lateral_loss + longitudinal_loss
+            total_loss = total_loss + self.consistency_loss_weight * consistency_loss
 
-            # Add to total loss
-            loss = loss + self.intent_loss_weight * intent_loss
+            objectives_dict["consistency_loss"] = consistency_loss
+            objectives_dict["lateral_consistency_loss"] = lateral_consistency_loss
+            objectives_dict["longitudinal_consistency_loss"] = longitudinal_consistency_loss
 
-            # Update objectives dict
-            objectives_dict["loss"] = loss
-            objectives_dict["intent_loss"] = intent_loss
-            objectives_dict["lateral_intent_loss"] = lateral_loss
-            objectives_dict["longitudinal_intent_loss"] = longitudinal_loss
+        objectives_dict["loss"] = total_loss
 
         return objectives_dict
 

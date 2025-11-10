@@ -430,3 +430,148 @@ def get_lateral_intent_index(lateral_intent: str) -> int:
 def get_longitudinal_intent_index(longitudinal_intent: str) -> int:
     """Convert longitudinal intent string to class index."""
     return LONGITUDINAL_INTENT_CLASSES.get(longitudinal_intent, LONGITUDINAL_INTENT_CLASSES["maintain_speed"])
+
+
+# ==================== Trajectory Tensor Classification ====================
+
+def classify_intent_from_trajectory(
+    trajectory: np.ndarray,
+    dt: float = 0.1,
+    time_horizon: float = 2.0,
+    config: IntentClassificationConfig = None
+) -> Tuple[int, int]:
+    """
+    Classify intent from a predicted trajectory tensor.
+
+    This function is designed to work with model predictions during training/inference.
+    It converts trajectory tensors into the format expected by the classification logic.
+
+    Args:
+        trajectory: Trajectory array of shape [T, 4] or [T, 2]
+                   If shape is [T, 4]: contains (x, y, cos(heading), sin(heading))
+                   If shape is [T, 2]: contains (x, y) only
+        dt: Time interval between trajectory steps (seconds)
+        time_horizon: Time window for intent classification (seconds)
+        config: Configuration object with thresholds. If None, uses DEFAULT_CONFIG
+
+    Returns:
+        Tuple of (lateral_intent_idx, longitudinal_intent_idx)
+    """
+    if config is None:
+        config = IntentClassificationConfig(sample_interval=dt)
+
+    # Extract positions
+    if trajectory.shape[-1] >= 2:
+        positions = trajectory[:, :2]  # [T, 2]
+    else:
+        raise ValueError(f"Trajectory must have at least 2 channels (x, y), got shape {trajectory.shape}")
+
+    # Determine time window
+    window_size = int(time_horizon / dt)
+    end_idx = min(window_size, len(positions) - 1)
+    positions_window = positions[:end_idx + 1]
+
+    # === Lateral Intent Classification ===
+
+    # Compute heading change
+    if trajectory.shape[-1] >= 4:
+        # Extract heading from cos/sin representation
+        cos_heading = trajectory[:, 2]
+        sin_heading = trajectory[:, 3]
+        headings = np.arctan2(sin_heading, cos_heading)
+
+        start_heading = headings[0]
+        end_heading = headings[end_idx]
+
+        # Normalize to [-π, π]
+        heading_change = end_heading - start_heading
+        while heading_change > np.pi:
+            heading_change -= 2 * np.pi
+        while heading_change < -np.pi:
+            heading_change += 2 * np.pi
+    else:
+        # Estimate heading from position changes
+        heading_change = 0.0
+        if len(positions_window) >= 2:
+            start_direction = positions_window[1] - positions_window[0]
+            end_direction = positions_window[-1] - positions_window[-2]
+
+            start_heading = np.arctan2(start_direction[1], start_direction[0])
+            end_heading = np.arctan2(end_direction[1], end_direction[0])
+
+            heading_change = end_heading - start_heading
+            while heading_change > np.pi:
+                heading_change -= 2 * np.pi
+            while heading_change < -np.pi:
+                heading_change += 2 * np.pi
+
+    heading_change_deg = np.degrees(heading_change)
+
+    # Compute curvature and lateral displacement
+    curvature = compute_trajectory_curvature(positions_window)
+    lateral_disp = compute_lateral_displacement(positions_window)
+
+    # Classify lateral intent
+    if heading_change_deg > config.turn_angle_threshold and curvature > config.turn_curvature_threshold:
+        lateral_intent = "turn_left"
+    elif heading_change_deg < -config.turn_angle_threshold and curvature > config.turn_curvature_threshold:
+        lateral_intent = "turn_right"
+    elif config.shift_angle_threshold < heading_change_deg <= config.turn_angle_threshold:
+        lateral_intent = "shift_left"
+    elif -config.turn_angle_threshold <= heading_change_deg < -config.shift_angle_threshold:
+        lateral_intent = "shift_right"
+    elif curvature <= config.turn_curvature_threshold:
+        if lateral_disp > config.lateral_shift_threshold:
+            lateral_intent = "shift_left"
+        elif lateral_disp < -config.lateral_shift_threshold:
+            lateral_intent = "shift_right"
+        else:
+            lateral_intent = "stay_in_lane"
+    else:
+        lateral_intent = "stay_in_lane"
+
+    # === Longitudinal Intent Classification ===
+
+    # Compute velocities from positions
+    velocities = []
+    for i in range(len(positions_window) - 1):
+        displacement = positions_window[i + 1] - positions_window[i]
+        velocity = np.linalg.norm(displacement) / dt
+        velocities.append(velocity)
+
+    if len(velocities) == 0:
+        longitudinal_intent = "maintain_speed"
+    else:
+        start_vel = velocities[0] if len(velocities) > 0 else 0.0
+        end_vel = velocities[-1] if len(velocities) > 0 else 0.0
+
+        # Check for stop
+        if end_vel < config.stop_velocity_threshold:
+            longitudinal_intent = "stop"
+        else:
+            # Compute acceleration
+            time_diff = len(velocities) * dt
+            if time_diff > 1e-6:
+                acceleration = (end_vel - start_vel) / time_diff
+            else:
+                acceleration = 0.0
+
+            # Compute velocity change ratio
+            if start_vel > 0.1:
+                vel_change_ratio = (end_vel - start_vel) / start_vel
+            else:
+                vel_change_ratio = 0.0
+
+            # Classify
+            if acceleration > config.accel_threshold or vel_change_ratio > config.velocity_change_ratio:
+                longitudinal_intent = "accelerate"
+            elif acceleration < config.decel_threshold or vel_change_ratio < -config.velocity_change_ratio:
+                longitudinal_intent = "decelerate"
+            else:
+                longitudinal_intent = "maintain_speed"
+
+    # Convert to indices
+    lateral_idx = get_lateral_intent_index(lateral_intent)
+    longitudinal_idx = get_longitudinal_intent_index(longitudinal_intent)
+
+    return lateral_idx, longitudinal_idx

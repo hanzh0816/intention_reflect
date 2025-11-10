@@ -1,6 +1,7 @@
 _target_: src.models.planTF.planning_model.PlanningModel
 _convert_: "all"
 
+# Model architecture parameters
 dim: 128
 state_channel: 6
 polygon_channel: 6
@@ -10,15 +11,13 @@ future_steps: 80
 encoder_depth: 4
 drop_path: 0.2
 num_heads: 8
-num_modes: 6
 state_dropout: 0.75
 use_ego_history: false
 state_attn_encoder: true
 
-# Intent-conditioned generation parameters
-intent_enabled: false  # Set to true to enable intent-conditioned trajectory generation
-intent_time_horizon: 2.0  # Time window for intent classification (seconds), options: 2.0, 4.0, 8.0
-intent_embed_dim: 64  # Dimension of intent embeddings
+# Intent-conditioned generation parameters (always enabled in new architecture)
+intent_time_horizon: 2.0  # Time window for intent classification (seconds)
+intention_decoder_depth: 2  # Number of transformer layers in intention decoder
 lateral_classes: 5  # Number of lateral intent classes (turn_left, turn_right, shift_left, shift_right, stay_in_lane)
 longitudinal_classes: 4  # Number of longitudinal intent classes (accelerate, maintain_speed, decelerate, stop)
 
