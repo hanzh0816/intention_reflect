@@ -37,6 +37,8 @@ class PlanningModel(TorchModuleWrapper):
         state_attn_encoder=True,
         state_dropout=0.75,
         feature_builder: NuplanFeatureBuilder = NuplanFeatureBuilder(),
+        # Multi-modal trajectory parameters
+        num_modes=6,
         # Intent-related parameters (always enabled in new architecture)
         intent_time_horizon=2.0,
         intention_decoder_depth=2,
@@ -61,6 +63,7 @@ class PlanningModel(TorchModuleWrapper):
         self.dim = dim
         self.history_steps = history_steps
         self.future_steps = future_steps
+        self.num_modes = num_modes
 
         # Intent-related attributes
         self.intention_decoder_depth = intention_decoder_depth
@@ -107,6 +110,7 @@ class PlanningModel(TorchModuleWrapper):
             embed_dim=dim * 2,  # Concatenated features
             future_steps=future_steps,
             out_channels=4,
+            num_modes=num_modes,
         )
 
         # Agent predictor (unchanged)
@@ -130,13 +134,13 @@ class PlanningModel(TorchModuleWrapper):
 
     def forward(self, data):
         """
-        Forward pass with new intent-conditioned single-mode architecture.
+        Forward pass with multi-modal intent-enhanced architecture.
 
         Pipeline:
         1. Encoding (unchanged) -> ego_feature
         2. Intention Decoder -> intention_feature
         3. Intent Classification -> A_pred (lateral + longitudinal)
-        4. Trajectory Decoder([ego_feature; intention_feature]) -> T_pred
+        4. Multi-modal Trajectory Decoder([ego_feature; intention_feature]) -> T_pred (multi-modal)
         """
         agent_pos = data["agent"]["position"][:, :, self.history_steps - 1]
         agent_heading = data["agent"]["heading"][:, :, self.history_steps - 1]
@@ -179,16 +183,19 @@ class PlanningModel(TorchModuleWrapper):
         lateral_logits = self.lateral_intent_head(intention_feature)  # [B, lateral_classes]
         longitudinal_logits = self.longitudinal_intent_head(intention_feature)  # [B, longitudinal_classes]
 
-        # Step 3: Trajectory Decoding from concatenated features
+        # Step 3: Multi-modal Trajectory Decoding from concatenated features
         combined_feature = torch.cat([ego_feature, intention_feature], dim=-1)  # [B, 2*dim]
-        trajectory = self.trajectory_decoder(combined_feature)  # [B, future_steps, 4]
+        trajectory, probability = self.trajectory_decoder(combined_feature)
+        # trajectory: [B, num_modes, future_steps, 4]
+        # probability: [B, num_modes] (logits)
 
         # === Agent Prediction (unchanged) ===
         prediction = self.agent_predictor(x[:, 1:A]).view(bs, -1, self.future_steps, 2)
 
         # === Output ===
         out = {
-            "trajectory": trajectory,  # [B, T, 4] - single mode
+            "trajectory": trajectory,  # [B, num_modes, T, 4] - multi-modal
+            "probability": probability,  # [B, num_modes]
             "prediction": prediction,  # [B, A-1, T, 2]
             "intent": {
                 "lateral": lateral_logits,  # [B, lateral_classes]
@@ -197,10 +204,13 @@ class PlanningModel(TorchModuleWrapper):
         }
 
         if not self.training:
-            # During inference, output trajectory directly (no mode selection needed)
-            angle = torch.atan2(trajectory[..., 3], trajectory[..., 2])
+            # During inference, select best mode based on probability
+            best_mode_idx = probability.argmax(dim=-1)  # [B]
+            best_trajectory = trajectory[torch.arange(bs), best_mode_idx]  # [B, T, 4]
+
+            angle = torch.atan2(best_trajectory[..., 3], best_trajectory[..., 2])
             out["output_trajectory"] = torch.cat(
-                [trajectory[..., :2], angle.unsqueeze(-1)], dim=-1
+                [best_trajectory[..., :2], angle.unsqueeze(-1)], dim=-1
             )
 
         return out

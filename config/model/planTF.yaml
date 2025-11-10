@@ -15,6 +15,9 @@ state_dropout: 0.75
 use_ego_history: false
 state_attn_encoder: true
 
+# Multi-modal trajectory parameters
+num_modes: 6  # Number of trajectory modes to generate
+
 # Intent-conditioned generation parameters (always enabled in new architecture)
 intent_time_horizon: 2.0  # Time window for intent classification (seconds)
 intention_decoder_depth: 2  # Number of transformer layers in intention decoder
