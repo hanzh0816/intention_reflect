@@ -19,6 +19,31 @@ class NuplanFeature(AbstractModelFeature):
 
     @classmethod
     def collate(cls, feature_list: List[NuplanFeature]) -> NuplanFeature:
+        if not feature_list:
+            raise ValueError("Cannot collate empty feature list")
+
+        # Validate that all features have required keys
+        required_keys = {"agent", "map", "current_state", "origin", "angle"}
+        first_feature_keys = set(feature_list[0].data.keys())
+
+        if not required_keys.issubset(first_feature_keys):
+            missing_keys = required_keys - first_feature_keys
+            raise KeyError(
+                f"NuplanFeature is missing required keys: {missing_keys}. "
+                f"Available keys: {first_feature_keys}. "
+                f"This may indicate corrupted or incomplete cached data. "
+                f"Try clearing the cache or regenerating features."
+            )
+
+        # Validate all features in the batch have the same keys
+        for i, feature in enumerate(feature_list):
+            feature_keys = set(feature.data.keys())
+            if feature_keys != first_feature_keys:
+                raise KeyError(
+                    f"Feature at index {i} has different keys. "
+                    f"Expected: {first_feature_keys}, got: {feature_keys}"
+                )
+
         batch_data = {}
         for key in ["agent", "map"]:
             batch_data[key] = {
@@ -55,13 +80,28 @@ class NuplanFeature(AbstractModelFeature):
 
     @classmethod
     def deserialize(cls, data: Dict[str, Any]) -> NuplanFeature:
+        # Handle nested data structure from cache
+        # If data only has one key 'data', unwrap it
+        if len(data) == 1 and 'data' in data:
+            return NuplanFeature(data=data['data'])
         return NuplanFeature(data=data)
 
     def unpack(self) -> List[AbstractModelFeature]:
         raise NotImplementedError
 
     def is_valid(self) -> bool:
-        return self.data["polylines"].shape[0] > 0
+        # Check if essential keys exist and have valid data
+        if "map" not in self.data or "agent" not in self.data:
+            return False
+        # Check if map data is not empty
+        map_data = self.data["map"]
+        if isinstance(map_data, dict):
+            # Check any map key for valid data
+            for key, value in map_data.items():
+                if hasattr(value, 'shape') and value.shape[0] > 0:
+                    return True
+            return False
+        return True
 
     @classmethod
     def normalize(
