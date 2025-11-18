@@ -15,6 +15,8 @@ from .modules.map_encoder import MapEncoder
 from .modules.intention_decoder import IntentionDecoder
 from .modules.trajectory_decoder import TrajectoryDecoder
 
+from .modules.snn_layers import SNNIntentHeads, SNNIntentionMLPDecoder
+
 # no meaning, required by nuplan
 trajectory_sampling = TrajectorySampling(num_poses=8, time_horizon=8, interval_length=1)
 
@@ -40,6 +42,8 @@ class PlanningModel(TorchModuleWrapper):
         intention_decoder_depth=2,
         lateral_classes=5,
         longitudinal_classes=4,
+        snn_time_steps=4,  # SNN时间步数
+        snn_neuron_cfg=None,  # SNN神经元配置
     ) -> None:
         super().__init__(
             feature_builders=[feature_builder],
@@ -79,18 +83,20 @@ class PlanningModel(TorchModuleWrapper):
             for dp in [x.item() for x in torch.linspace(0, drop_path, encoder_depth)]
         )
         self.norm = nn.LayerNorm(dim)
-
-        # Intention decoder: transforms ego feature to intention feature
-        self.intention_decoder = IntentionDecoder(
+        self.intention_decoder = SNNIntentionMLPDecoder(
             dim=dim,
             depth=intention_decoder_depth,
-            num_heads=num_heads,
-            drop_path=drop_path,
+            hidden_dim=dim * 4,
+            time_steps=snn_time_steps,
+            neuron_cfg=snn_neuron_cfg,
         )
-
-        # Intent classification heads (take intention_feature as input)
-        self.lateral_intent_head = nn.Linear(dim, lateral_classes)
-        self.longitudinal_intent_head = nn.Linear(dim, longitudinal_classes)
+        self.intent_head = SNNIntentHeads(
+            in_features=dim,
+            lateral_classes=lateral_classes,
+            longitudinal_classes=longitudinal_classes,
+            neuron_cfg=snn_neuron_cfg,
+            time_steps=snn_time_steps,
+        )
 
         self.trajectory_decoder = TrajectoryDecoder(
             embed_dim=2 * dim,
@@ -162,10 +168,9 @@ class PlanningModel(TorchModuleWrapper):
         intention_feature = self.intention_decoder(ego_feature)  # [B, dim]
 
         # Step 2: Intent Classification from intention_feature
-        lateral_logits = self.lateral_intent_head(intention_feature)  # [B, lateral_classes]
-        longitudinal_logits = self.longitudinal_intent_head(
+        lateral_logits, longitudinal_logits = self.intent_head(
             intention_feature
-        )  # [B, longitudinal_classes]
+        )  # [B, lateral_classes], [B, longitudinal_classes]
 
         # Step 3: Trajectory Decoding from concatenated features
         combined_feature = torch.cat([ego_feature, intention_feature], dim=-1)  # [B, 2*dim]
@@ -176,9 +181,9 @@ class PlanningModel(TorchModuleWrapper):
             "trajectory": trajectory,
             "probability": probability,
             "prediction": prediction,
-            'intent': {
-                'lateral': lateral_logits,
-                'longitudinal': longitudinal_logits,
+            "intent": {
+                "lateral": lateral_logits,
+                "longitudinal": longitudinal_logits,
             },
         }
 

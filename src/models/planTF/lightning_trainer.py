@@ -20,6 +20,8 @@ from src.metrics import MR, minADE, minFDE
 from src.optim.warmup_cos_lr import WarmupCosLR
 from src.utils.intent_cls import classify_intent_from_cached_trajectory
 
+import spikingjelly.clock_driven.functional as functional
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,6 +69,7 @@ class LightningTrainer(pl.LightningModule):
         losses = self._compute_objectives(res, features["feature"].data)
         metrics = self._compute_metrics(res, features["feature"].data, prefix)
         self._log_step(losses["loss"], losses, metrics, prefix)
+        functional.reset_net(self.model)
 
         return losses["loss"]
 
@@ -124,7 +127,9 @@ class LightningTrainer(pl.LightningModule):
             lateral_list.append(lat_idx)
             longitudinal_list.append(lon_idx)
 
-        lateral_target = torch.as_tensor(lateral_list, dtype=torch.long, device=lateral_logits.device)
+        lateral_target = torch.as_tensor(
+            lateral_list, dtype=torch.long, device=lateral_logits.device
+        )
         longitudinal_target = torch.as_tensor(
             longitudinal_list, dtype=torch.long, device=longitudinal_logits.device
         )
@@ -133,7 +138,9 @@ class LightningTrainer(pl.LightningModule):
         longitudinal_intent_loss = F.cross_entropy(longitudinal_logits, longitudinal_target)
         intent_cls_loss = lateral_intent_loss + longitudinal_intent_loss
 
-        loss = ego_reg_loss + ego_cls_loss + agent_reg_loss + self.intent_loss_weight * intent_cls_loss
+        loss = (
+            ego_reg_loss + ego_cls_loss + agent_reg_loss + self.intent_loss_weight * intent_cls_loss
+        )
 
         return {
             "loss": loss,
