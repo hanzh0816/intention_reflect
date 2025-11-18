@@ -18,6 +18,7 @@ from torchmetrics import MetricCollection
 
 from src.metrics import MR, minADE, minFDE
 from src.optim.warmup_cos_lr import WarmupCosLR
+from src.utils.intent_cls import classify_intent_from_cached_trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class LightningTrainer(pl.LightningModule):
         weight_decay,
         epochs,
         warmup_epochs,
+        intent_loss_weight: float = 1.0,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -39,6 +41,7 @@ class LightningTrainer(pl.LightningModule):
         self.weight_decay = weight_decay
         self.epochs = epochs
         self.warmup_epochs = warmup_epochs
+        self.intent_loss_weight = intent_loss_weight
 
     def on_fit_start(self) -> None:
         metrics_collection = MetricCollection(
@@ -80,9 +83,7 @@ class LightningTrainer(pl.LightningModule):
         ego_target = torch.cat(
             [
                 ego_target_pos,
-                torch.stack(
-                    [ego_target_heading.cos(), ego_target_heading.sin()], dim=-1
-                ),
+                torch.stack([ego_target_heading.cos(), ego_target_heading.sin()], dim=-1),
             ],
             dim=-1,
         )
@@ -94,17 +95,52 @@ class LightningTrainer(pl.LightningModule):
         ego_reg_loss = F.smooth_l1_loss(best_traj, ego_target)
         ego_cls_loss = F.cross_entropy(probability, best_mode.detach())
 
-        agent_reg_loss = F.smooth_l1_loss(
-            prediction[agent_mask], agent_target[agent_mask][:, :2]
+        agent_reg_loss = F.smooth_l1_loss(prediction[agent_mask], agent_target[agent_mask][:, :2])
+
+        lateral_logits = res["intent"]["lateral"]  # [B, C_lat]
+        longitudinal_logits = res["intent"]["longitudinal"]  # [B, C_long]
+
+        # Intent classification loss: CE(A_pred, A_gt)
+        # Build ground-truth intent labels from expert (ego) target trajectory
+        # targets: [B, A, T, 3] with (x, y, heading)
+        bs = targets.shape[0]
+        ego_expert_traj = targets[:, 0]  # [B, T, 3]
+
+        # Try to read time horizon and dt from model config; fall back to sensible defaults
+        time_horizon = getattr(getattr(self.model, "model", self.model), "intent_time_horizon", 2.0)
+        try:
+            sample_interval = self.model.feature_builders[0].sample_interval  # type: ignore[attr-defined]
+        except Exception:
+            sample_interval = 0.1
+
+        lateral_list = []
+        longitudinal_list = []
+        for i in range(bs):
+            lat_idx, lon_idx = classify_intent_from_cached_trajectory(
+                trajectory_data=ego_expert_traj[i],
+                time_horizon=time_horizon,
+                sample_interval=sample_interval,
+            )
+            lateral_list.append(lat_idx)
+            longitudinal_list.append(lon_idx)
+
+        lateral_target = torch.as_tensor(lateral_list, dtype=torch.long, device=lateral_logits.device)
+        longitudinal_target = torch.as_tensor(
+            longitudinal_list, dtype=torch.long, device=longitudinal_logits.device
         )
 
-        loss = ego_reg_loss + ego_cls_loss + agent_reg_loss
+        lateral_intent_loss = F.cross_entropy(lateral_logits, lateral_target)
+        longitudinal_intent_loss = F.cross_entropy(longitudinal_logits, longitudinal_target)
+        intent_cls_loss = lateral_intent_loss + longitudinal_intent_loss
+
+        loss = ego_reg_loss + ego_cls_loss + agent_reg_loss + self.intent_loss_weight * intent_cls_loss
 
         return {
             "loss": loss,
             "reg_loss": ego_reg_loss,
             "cls_loss": ego_cls_loss,
             "prediction_loss": agent_reg_loss,
+            "intent_cls_loss": intent_cls_loss,
         }
 
     def _compute_metrics(self, output, data, prefix) -> Dict[str, torch.Tensor]:
@@ -220,9 +256,7 @@ class LightningTrainer(pl.LightningModule):
         )
         for module_name, module in self.named_modules():
             for param_name, param in module.named_parameters():
-                full_param_name = (
-                    "%s.%s" % (module_name, param_name) if module_name else param_name
-                )
+                full_param_name = "%s.%s" % (module_name, param_name) if module_name else param_name
                 if "bias" in param_name:
                     no_decay.add(full_param_name)
                 elif "weight" in param_name:
@@ -232,9 +266,7 @@ class LightningTrainer(pl.LightningModule):
                         no_decay.add(full_param_name)
                 elif not ("weight" in param_name or "bias" in param_name):
                     no_decay.add(full_param_name)
-        param_dict = {
-            param_name: param for param_name, param in self.named_parameters()
-        }
+        param_dict = {param_name: param for param_name, param in self.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0
@@ -242,23 +274,17 @@ class LightningTrainer(pl.LightningModule):
 
         optim_groups = [
             {
-                "params": [
-                    param_dict[param_name] for param_name in sorted(list(decay))
-                ],
+                "params": [param_dict[param_name] for param_name in sorted(list(decay))],
                 "weight_decay": self.weight_decay,
             },
             {
-                "params": [
-                    param_dict[param_name] for param_name in sorted(list(no_decay))
-                ],
+                "params": [param_dict[param_name] for param_name in sorted(list(no_decay))],
                 "weight_decay": 0.0,
             },
         ]
 
         # Get optimizer
-        optimizer = torch.optim.AdamW(
-            optim_groups, lr=self.lr, weight_decay=self.weight_decay
-        )
+        optimizer = torch.optim.AdamW(optim_groups, lr=self.lr, weight_decay=self.weight_decay)
 
         # Get lr_scheduler
         scheduler = WarmupCosLR(
