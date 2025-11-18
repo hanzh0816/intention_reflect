@@ -173,6 +173,7 @@ class LightningTrainer(pl.LightningModule):
             )
 
         if metrics is not None:
+            # Log original metrics dict (may contain keys like "val/minFDE1")
             self.log_dict(
                 metrics,
                 prog_bar=(prefix == "val"),
@@ -181,6 +182,19 @@ class LightningTrainer(pl.LightningModule):
                 batch_size=1,
                 sync_dist=True,
             )
+            # Additionally log flat aliases for checkpoint filename formatting
+            # e.g., "val_minFDE1", "val_minADE1"
+            if prefix == "val":
+                alias_keys = ["val/minFDE1", "val/minADE1"]
+                for k in alias_keys:
+                    if k in metrics:
+                        self.log(
+                            k.replace("/", "_"),
+                            metrics[k],
+                            on_step=False,
+                            on_epoch=True,
+                            sync_dist=True,
+                        )
 
     def training_step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], batch_idx: int
