@@ -359,65 +359,6 @@ class SNNIntentHeads(nn.Module):
         self.longitudinal_head.reset_neurons()
 
 
-# 预定义配置
-SNN_INTENT_HEAD_CONFIGS = {
-    "small": {"lateral_hidden_dims": [32], "longitudinal_hidden_dims": [32], "dropout": 0.05},
-    "standard": {"lateral_hidden_dims": [64], "longitudinal_hidden_dims": [64], "dropout": 0.1},
-    "large": {
-        "lateral_hidden_dims": [128, 64],
-        "longitudinal_hidden_dims": [128, 64],
-        "dropout": 0.15,
-    },
-    "xlarge": {
-        "lateral_hidden_dims": [256, 128, 64],
-        "longitudinal_hidden_dims": [256, 128, 64],
-        "dropout": 0.2,
-    },
-}
-
-
-def create_snn_intent_heads(
-    in_features: int,
-    lateral_classes: int = 5,
-    longitudinal_classes: int = 4,
-    size: str = "standard",
-    neuron_cfg: Optional[Dict] = None,
-    time_steps: int = 4,
-    **kwargs,
-):
-    """
-    工厂函数：创建SNN意图分类头
-
-    Args:
-        in_features: 输入特征维度
-        lateral_classes: 横向意图类别数
-        longitudinal_classes: 纵向意图类别数
-        size: "small", "standard", "large", "xlarge"
-        neuron_cfg: 神经元配置
-        time_steps: 时间步数
-        **kwargs: 额外的参数
-
-    Returns:
-        SNNIntentHeads 实例
-    """
-    if size not in SNN_INTENT_HEAD_CONFIGS:
-        raise ValueError(
-            f"Unsupported size: {size}. Available: {list(SNN_INTENT_HEAD_CONFIGS.keys())}"
-        )
-
-    config = SNN_INTENT_HEAD_CONFIGS[size].copy()
-    config.update(kwargs)
-
-    return SNNIntentHeads(
-        in_features=in_features,
-        lateral_classes=lateral_classes,
-        longitudinal_classes=longitudinal_classes,
-        neuron_cfg=neuron_cfg,
-        time_steps=time_steps,
-        **config,
-    )
-
-
 class SNNIntentionMLPDecoder(nn.Module):
     """
     基于SNN的意图解码器 - MLP版本
