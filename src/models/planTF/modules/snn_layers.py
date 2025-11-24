@@ -23,6 +23,7 @@ class SNNLateralIntentHead(nn.Module):
         neuron_cfg: LIF神经元配置
         dropout: dropout比例
         time_steps: 时间步数
+        use_stdp: 是否使用STDP训练模式（默认False）
     """
 
     def __init__(
@@ -33,11 +34,13 @@ class SNNLateralIntentHead(nn.Module):
         neuron_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
         time_steps: int = 4,
+        use_stdp: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
         self.time_steps = time_steps
+        self.use_stdp = use_stdp
 
         if hidden_dims is None:
             hidden_dims = [64]  # 默认单层隐藏层
@@ -56,6 +59,7 @@ class SNNLateralIntentHead(nn.Module):
             hidden_dims=hidden_dims,
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
+            use_stdp=use_stdp,
         )
 
         # 时间维度扩展器（用于输入特征）
@@ -85,7 +89,12 @@ class SNNLateralIntentHead(nn.Module):
             intention_feature: [B, in_features] 意图特征
 
         Returns:
-            lateral_logits: [B, num_classes] 横向意图logits
+            BP模式: lateral_logits: [B, num_classes] 横向意图logits
+            STDP模式: {
+                'logits': [B, num_classes],
+                'spike_trains': [T, B, num_classes],
+                'hidden_output': [T, B, hidden_dim]
+            }
         """
         # 特征归一化
         x = self.feature_norm(intention_feature)  # [B, in_features]
@@ -94,9 +103,7 @@ class SNNLateralIntentHead(nn.Module):
         x = self.time_expander(x)  # [T, B, in_features]
 
         # SNN分类
-        lateral_logits = self.classifier(x)  # [B, num_classes]
-
-        return lateral_logits
+        return self.classifier(x)
 
     def get_prediction_confidence(self, intention_feature: torch.Tensor):
         """
@@ -109,7 +116,14 @@ class SNNLateralIntentHead(nn.Module):
             confidence: [B] 置信度分数
             predictions: [B] 预测类别
         """
-        logits = self.forward(intention_feature)
+        result = self.forward(intention_feature)
+
+        # 处理两种模式的返回值
+        if isinstance(result, dict):
+            logits = result['logits']
+        else:
+            logits = result
+
         probabilities = torch.softmax(logits, dim=-1)
         confidence, predictions = torch.max(probabilities, dim=-1)
         return confidence, predictions
@@ -120,6 +134,10 @@ class SNNLateralIntentHead(nn.Module):
         for module in self.classifier.modules():
             if hasattr(module, "lif") and hasattr(module.lif, "reset"):
                 module.lif.reset()
+            if hasattr(module, "output_lif") and module.output_lif is not None:
+                for sub in module.output_lif.modules():
+                    if hasattr(sub, "reset"):
+                        sub.reset()
 
 
 class SNNLongitudinalIntentHead(nn.Module):
@@ -139,6 +157,7 @@ class SNNLongitudinalIntentHead(nn.Module):
         neuron_cfg: LIF神经元配置
         dropout: dropout比例
         time_steps: 时间步数
+        use_stdp: 是否使用STDP训练模式（默认False）
     """
 
     def __init__(
@@ -149,11 +168,13 @@ class SNNLongitudinalIntentHead(nn.Module):
         neuron_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
         time_steps: int = 4,
+        use_stdp: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
         self.time_steps = time_steps
+        self.use_stdp = use_stdp
 
         if hidden_dims is None:
             hidden_dims = [64]  # 默认单层隐藏层
@@ -172,6 +193,7 @@ class SNNLongitudinalIntentHead(nn.Module):
             hidden_dims=hidden_dims,
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
+            use_stdp=use_stdp,
         )
 
         # 时间维度扩展器
@@ -201,7 +223,12 @@ class SNNLongitudinalIntentHead(nn.Module):
             intention_feature: [B, in_features] 意图特征
 
         Returns:
-            longitudinal_logits: [B, num_classes] 纵向意图logits
+            BP模式: longitudinal_logits: [B, num_classes] 纵向意图logits
+            STDP模式: {
+                'logits': [B, num_classes],
+                'spike_trains': [T, B, num_classes],
+                'hidden_output': [T, B, hidden_dim]
+            }
         """
         # 特征归一化
         x = self.feature_norm(intention_feature)  # [B, in_features]
@@ -210,9 +237,7 @@ class SNNLongitudinalIntentHead(nn.Module):
         x = self.time_expander(x)  # [T, B, in_features]
 
         # SNN分类
-        longitudinal_logits = self.classifier(x)  # [B, num_classes]
-
-        return longitudinal_logits
+        return self.classifier(x)
 
     def get_prediction_confidence(self, intention_feature: torch.Tensor):
         """
@@ -225,7 +250,14 @@ class SNNLongitudinalIntentHead(nn.Module):
             confidence: [B] 置信度分数
             predictions: [B] 预测类别
         """
-        logits = self.forward(intention_feature)
+        result = self.forward(intention_feature)
+
+        # 处理两种模式的返回值
+        if isinstance(result, dict):
+            logits = result['logits']
+        else:
+            logits = result
+
         probabilities = torch.softmax(logits, dim=-1)
         confidence, predictions = torch.max(probabilities, dim=-1)
         return confidence, predictions
@@ -236,11 +268,19 @@ class SNNLongitudinalIntentHead(nn.Module):
         for module in self.classifier.modules():
             if hasattr(module, "lif") and hasattr(module.lif, "reset"):
                 module.lif.reset()
+            if hasattr(module, "output_lif") and module.output_lif is not None:
+                for sub in module.output_lif.modules():
+                    if hasattr(sub, "reset"):
+                        sub.reset()
 
 
 class SNNIntentHeads(nn.Module):
     """
     统一的SNN意图分类头，包含横向和纵向意图分类
+
+    支持两种训练模式：
+    - BP模式（默认）：使用标准反向传播
+    - STDP模式：使用Reward-modulated STDP本地学习规则
 
     Args:
         in_features: 输入特征维度
@@ -251,6 +291,8 @@ class SNNIntentHeads(nn.Module):
         neuron_cfg: LIF神经元配置
         dropout: dropout比例
         time_steps: 时间步数
+        use_stdp: 是否使用STDP训练模式（默认False）
+        stdp_config: STDP相关配置字典
     """
 
     def __init__(
@@ -263,16 +305,31 @@ class SNNIntentHeads(nn.Module):
         neuron_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
         time_steps: int = 4,
+        use_stdp: bool = False,
+        stdp_config: Optional[Dict] = None,
     ):
         super().__init__()
         self.in_features = in_features
         self.lateral_classes = lateral_classes
         self.longitudinal_classes = longitudinal_classes
+        self.use_stdp = use_stdp
+        self.time_steps = time_steps
 
         if lateral_hidden_dims is None:
             lateral_hidden_dims = [64]
         if longitudinal_hidden_dims is None:
             longitudinal_hidden_dims = [64]
+
+        # STDP配置
+        if stdp_config is None:
+            stdp_config = {}
+        self.stdp_config = {
+            'learning_rate': stdp_config.get('learning_rate', 0.001),
+            'A_pre': stdp_config.get('A_pre', 0.01),
+            'A_post': stdp_config.get('A_post', -0.01),
+            'tau_pre': stdp_config.get('tau_pre', 10.0),
+            'tau_post': stdp_config.get('tau_post', 10.0),
+        }
 
         # 横向意图头
         self.lateral_head = SNNLateralIntentHead(
@@ -282,6 +339,7 @@ class SNNIntentHeads(nn.Module):
             neuron_cfg=neuron_cfg,
             dropout=dropout,
             time_steps=time_steps,
+            use_stdp=use_stdp,
         )
 
         # 纵向意图头
@@ -292,7 +350,30 @@ class SNNIntentHeads(nn.Module):
             neuron_cfg=neuron_cfg,
             dropout=dropout,
             time_steps=time_steps,
+            use_stdp=use_stdp,
         )
+
+        # 如果使用STDP，初始化STDP更新器
+        if use_stdp:
+            from .snn_stdp import RewardModulatedSTDPUpdater
+
+            # 为两个头各创建一个STDP更新器
+            self.lateral_stdp_updater = RewardModulatedSTDPUpdater(
+                learning_rate=self.stdp_config['learning_rate'],
+                A_pre=self.stdp_config['A_pre'],
+                A_post=self.stdp_config['A_post'],
+                tau_pre=self.stdp_config['tau_pre'],
+                tau_post=self.stdp_config['tau_post'],
+                device='cuda' if torch.cuda.is_available() else 'cpu',
+            )
+            self.longitudinal_stdp_updater = RewardModulatedSTDPUpdater(
+                learning_rate=self.stdp_config['learning_rate'],
+                A_pre=self.stdp_config['A_pre'],
+                A_post=self.stdp_config['A_post'],
+                tau_pre=self.stdp_config['tau_pre'],
+                tau_post=self.stdp_config['tau_post'],
+                device='cuda' if torch.cuda.is_available() else 'cpu',
+            )
 
     def forward(self, intention_feature: torch.Tensor):
         """
@@ -302,11 +383,40 @@ class SNNIntentHeads(nn.Module):
             intention_feature: [B, in_features] 意图特征
 
         Returns:
-            lateral_logits: [B, lateral_classes] 横向意图logits
-            longitudinal_logits: [B, longitudinal_classes] 纵向意图logits
+            BP模式: (lateral_logits, longitudinal_logits)
+                lateral_logits: [B, lateral_classes]
+                longitudinal_logits: [B, longitudinal_classes]
+
+            STDP模式: (lateral_result, longitudinal_result)
+                其中result为字典，包含'logits', 'spike_trains', 'hidden_output'
         """
-        lateral_logits = self.lateral_head(intention_feature)
-        longitudinal_logits = self.longitudinal_head(intention_feature)
+        lateral_result = self.lateral_head(intention_feature)
+        longitudinal_result = self.longitudinal_head(intention_feature)
+
+        return lateral_result, longitudinal_result
+
+    def get_logits(self, intention_feature: torch.Tensor):
+        """
+        获取logits（兼容BP和STDP模式）
+
+        Args:
+            intention_feature: [B, in_features]
+
+        Returns:
+            (lateral_logits, longitudinal_logits): 均为[B, num_classes]
+        """
+        lateral_result, longitudinal_result = self.forward(intention_feature)
+
+        # 处理两种模式的返回值
+        if isinstance(lateral_result, dict):
+            lateral_logits = lateral_result['logits']
+        else:
+            lateral_logits = lateral_result
+
+        if isinstance(longitudinal_result, dict):
+            longitudinal_logits = longitudinal_result['logits']
+        else:
+            longitudinal_logits = longitudinal_result
 
         return lateral_logits, longitudinal_logits
 
@@ -323,7 +433,7 @@ class SNNIntentHeads(nn.Module):
             lateral_confidence: [B] 横向置信度
             longitudinal_confidence: [B] 纵向置信度
         """
-        lateral_logits, longitudinal_logits = self.forward(intention_feature)
+        lateral_logits, longitudinal_logits = self.get_logits(intention_feature)
 
         # 计算概率和预测
         lateral_probs = torch.softmax(lateral_logits, dim=-1)
@@ -350,8 +460,82 @@ class SNNIntentHeads(nn.Module):
             lateral_vectors: [B, lateral_classes] 横向意图向量
             longitudinal_vectors: [B, longitudinal_classes] 纵向意图向量
         """
-        lateral_logits, longitudinal_logits = self.forward(intention_feature)
+        lateral_logits, longitudinal_logits = self.get_logits(intention_feature)
         return lateral_logits, longitudinal_logits
+
+    def stdp_update(
+        self,
+        lateral_result: dict,
+        longitudinal_result: dict,
+        lateral_labels: torch.Tensor,
+        longitudinal_labels: torch.Tensor,
+    ):
+        """
+        执行STDP权重更新（仅在use_stdp=True时调用）
+
+        Args:
+            lateral_result: 横向意图头的前向输出（字典格式）
+            longitudinal_result: 纵向意图头的前向输出（字典格式）
+            lateral_labels: [B] 横向意图标签
+            longitudinal_labels: [B] 纵向意图标签
+
+        Returns:
+            stdp_metrics: 包含STDP相关指标的字典
+        """
+        if not self.use_stdp:
+            raise RuntimeError("STDP模式未启用。请在初始化时设置use_stdp=True。")
+
+        stdp_metrics = {}
+
+        # 更新横向意图头的权重
+        if isinstance(lateral_result, dict):
+            lateral_hidden_spikes = lateral_result['hidden_output']  # [T, B, hidden_dim]
+            lateral_output_spikes = lateral_result['spike_trains']  # [T, B, num_classes]
+            lateral_logits = lateral_result['logits']  # [B, num_classes]
+
+            # 获取output_linear权重并进行STDP更新
+            output_linear = self.lateral_head.classifier.output_linear
+            lateral_weight_delta = self.lateral_stdp_updater.update_weight(
+                weight=output_linear.weight.data,
+                pre_spikes_sequence=lateral_hidden_spikes,
+                post_spikes_sequence=lateral_output_spikes,
+                logits=lateral_logits,
+                labels=lateral_labels,
+            )
+
+            # 应用权重更新
+            with torch.no_grad():
+                output_linear.weight.data = self.lateral_stdp_updater.apply_update(
+                    output_linear.weight.data, lateral_weight_delta
+                )
+
+            stdp_metrics['lateral'] = self.lateral_stdp_updater.get_metrics()
+
+        # 更新纵向意图头的权重
+        if isinstance(longitudinal_result, dict):
+            longitudinal_hidden_spikes = longitudinal_result['hidden_output']  # [T, B, hidden_dim]
+            longitudinal_output_spikes = longitudinal_result['spike_trains']  # [T, B, num_classes]
+            longitudinal_logits = longitudinal_result['logits']  # [B, num_classes]
+
+            # 获取output_linear权重并进行STDP更新
+            output_linear = self.longitudinal_head.classifier.output_linear
+            longitudinal_weight_delta = self.longitudinal_stdp_updater.update_weight(
+                weight=output_linear.weight.data,
+                pre_spikes_sequence=longitudinal_hidden_spikes,
+                post_spikes_sequence=longitudinal_output_spikes,
+                logits=longitudinal_logits,
+                labels=longitudinal_labels,
+            )
+
+            # 应用权重更新
+            with torch.no_grad():
+                output_linear.weight.data = self.longitudinal_stdp_updater.apply_update(
+                    output_linear.weight.data, longitudinal_weight_delta
+                )
+
+            stdp_metrics['longitudinal'] = self.longitudinal_stdp_updater.get_metrics()
+
+        return stdp_metrics
 
     def reset_neurons(self):
         """重置所有神经元状态"""
@@ -557,7 +741,12 @@ class SNNLinearBlock(nn.Module):
 
 
 class SNNClassifier(nn.Module):
-    """SNN分类器：用于意图分类任务"""
+    """SNN分类器：用于意图分类任务
+
+    支持两种模式：
+    - BP模式（默认）：输出层为Linear，无LIF激活
+    - STDP模式：输出层为Linear + LIF，支持Reward-modulated STDP训练
+    """
 
     def __init__(
         self,
@@ -566,10 +755,12 @@ class SNNClassifier(nn.Module):
         hidden_dims: list,
         neuron_cfg: Dict,
         dropout: float = 0.0,
+        use_stdp: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
+        self.use_stdp = use_stdp
 
         # 构建隐藏层
         layers = []
@@ -579,8 +770,14 @@ class SNNClassifier(nn.Module):
             layers.append(SNNLinearBlock(prev_dim, hidden_dim, neuron_cfg, dropout=dropout))
             prev_dim = hidden_dim
 
-        # 输出层（无LIF激活）
+        # 输出层
         self.output_linear = nn.Linear(prev_dim, num_classes, bias=True)
+
+        # 如果使用STDP，在输出层后添加LIF神经元以获得post-synaptic spikes
+        if use_stdp:
+            self.output_lif = LIFNeuron(**neuron_cfg)
+        else:
+            self.output_lif = None
 
         self.hidden_layers = nn.ModuleList(layers)
 
@@ -589,22 +786,39 @@ class SNNClassifier(nn.Module):
         Args:
             x: [T, B, C_in] 时间步×批次×特征
         Returns:
-            [B, num_classes] 分类logits
+            BP模式: [B, num_classes] 分类logits
+            STDP模式: {
+                'logits': [B, num_classes] 时间平均logits,
+                'spike_trains': [T, B, num_classes] 输出层spike序列,
+                'hidden_output': [T, B, hidden_dim] 隐藏层输出
+            }
         """
         # 通过隐藏层
         for layer in self.hidden_layers:
             x = layer(x)
 
-        # 最终线性层（无LIF激活）
+        hidden_output = x  # 保存隐藏层输出用于STDP
         T, B, C = x.shape
+
+        # 最终线性层
         x_flat = x.reshape(T * B, C)
         x = self.output_linear(x_flat)  # [T*B, num_classes]
         x = x.reshape(T, B, self.num_classes)
 
-        # 时间维度平均得到最终logits
-        x = x.mean(dim=0)  # [B, num_classes]
+        # BP模式：直接返回时间平均的logits
+        if not self.use_stdp:
+            return x.mean(dim=0)  # [B, num_classes]
 
-        return x
+        # STDP模式：返回完整的spike序列和logits
+        # 通过LIF神经元获得output layer spikes
+        spike_trains = self.output_lif(x)  # [T, B, num_classes]
+        logits = x.mean(dim=0)  # [B, num_classes] 时间平均用于分类
+
+        return {
+            'logits': logits,
+            'spike_trains': spike_trains,
+            'hidden_output': hidden_output,
+        }
 
 
 class TimeDimAverage(nn.Module):

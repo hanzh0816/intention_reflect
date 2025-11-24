@@ -23,3 +23,12 @@ feature_builder:
   future_horizon: 8
   sample_interval: 0.1
   max_agents: 32
+
+# STDP training configuration
+use_stdp: true # Set to true to enable Reward-modulated STDP training
+stdp_config:
+  learning_rate: 0.001 # STDP learning rate
+  A_pre: 0.01 # LTP amplitude (positive)
+  A_post: -0.01 # LTD amplitude (negative)
+  tau_pre: 10.0 # Pre-synaptic trace time constant
+  tau_post: 10.0 # Post-synaptic trace time constant

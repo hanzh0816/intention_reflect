@@ -44,6 +44,8 @@ class PlanningModel(TorchModuleWrapper):
         longitudinal_classes=4,
         snn_time_steps=4,  # SNN时间步数
         snn_neuron_cfg=None,  # SNN神经元配置
+        use_stdp=False,  # 是否使用STDP训练模式
+        stdp_config=None,  # STDP配置
     ) -> None:
         super().__init__(
             feature_builders=[feature_builder],
@@ -96,6 +98,8 @@ class PlanningModel(TorchModuleWrapper):
             longitudinal_classes=longitudinal_classes,
             neuron_cfg=snn_neuron_cfg,
             time_steps=snn_time_steps,
+            use_stdp=use_stdp,
+            stdp_config=stdp_config,
         )
 
         self.trajectory_decoder = TrajectoryDecoder(
@@ -168,9 +172,30 @@ class PlanningModel(TorchModuleWrapper):
         intention_feature = self.intention_decoder(ego_feature)  # [B, dim]
 
         # Step 2: Intent Classification from intention_feature
-        lateral_logits, longitudinal_logits = self.intent_head(
+        lateral_result, longitudinal_result = self.intent_head(
             intention_feature
-        )  # [B, lateral_classes], [B, longitudinal_classes]
+        )
+
+        # 兼容BP和STDP两种模式
+        if isinstance(lateral_result, dict):
+            # STDP模式：提取logits并保存完整信息
+            lateral_logits = lateral_result['logits']
+            longitudinal_logits = longitudinal_result['logits']
+            intent_dict = {
+                "lateral": lateral_logits,
+                "longitudinal": longitudinal_logits,
+                # 保存完整的STDP信息供trainer使用
+                "lateral_full": lateral_result,
+                "longitudinal_full": longitudinal_result,
+            }
+        else:
+            # BP模式：直接使用张量
+            lateral_logits = lateral_result
+            longitudinal_logits = longitudinal_result
+            intent_dict = {
+                "lateral": lateral_logits,
+                "longitudinal": longitudinal_logits,
+            }
 
         # Step 3: Trajectory Decoding from concatenated features
         combined_feature = torch.cat([ego_feature, intention_feature], dim=-1)  # [B, 2*dim]
@@ -181,10 +206,7 @@ class PlanningModel(TorchModuleWrapper):
             "trajectory": trajectory,
             "probability": probability,
             "prediction": prediction,
-            "intent": {
-                "lateral": lateral_logits,
-                "longitudinal": longitudinal_logits,
-            },
+            "intent": intent_dict,
         }
 
         if not self.training:

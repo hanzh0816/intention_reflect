@@ -69,6 +69,13 @@ class LightningTrainer(pl.LightningModule):
         losses = self._compute_objectives(res, features["feature"].data)
         metrics = self._compute_metrics(res, features["feature"].data, prefix)
         self._log_step(losses["loss"], losses, metrics, prefix)
+
+        # 处理STDP更新（如果启用）
+        if hasattr(self.model, 'intent_head') and self.model.intent_head.use_stdp:
+            stdp_metrics = self._stdp_update_step(res, features["feature"].data)
+            if stdp_metrics:
+                self._log_stdp_metrics(stdp_metrics, prefix)
+
         functional.reset_net(self.model)
 
         return losses["loss"]
@@ -153,6 +160,93 @@ class LightningTrainer(pl.LightningModule):
     def _compute_metrics(self, output, data, prefix) -> Dict[str, torch.Tensor]:
         metrics = self.metrics[prefix](output, data["agent"]["target"][:, 0])
         return metrics
+
+    def _stdp_update_step(self, res, data) -> Dict:
+        """
+        执行STDP权重更新（仅当模型使用STDP模式时调用）
+
+        Args:
+            res: 模型输出
+            data: 批次数据
+
+        Returns:
+            stdp_metrics: STDP相关指标字典
+        """
+        intent_head = self.model.intent_head
+
+        # 从res中获取完整的STDP信息
+        # STDP模式：lateral_full/longitudinal_full包含spikes和hidden outputs
+        # BP模式：这些键不存在，返回的是logits张量
+        lateral_result = res["intent"].get("lateral_full", res["intent"]["lateral"])
+        longitudinal_result = res["intent"].get("longitudinal_full", res["intent"]["longitudinal"])
+
+        # 获取targets中的intent标签
+        targets = data["agent"]["target"]
+        bs = targets.shape[0]
+        ego_expert_traj = targets[:, 0]  # [B, T, 3]
+
+        time_horizon = getattr(getattr(self.model, "model", self.model), "intent_time_horizon", 2.0)
+        try:
+            sample_interval = self.model.feature_builders[0].sample_interval
+        except Exception:
+            sample_interval = 0.1
+
+        lateral_list = []
+        longitudinal_list = []
+        for i in range(bs):
+            lat_idx, lon_idx = classify_intent_from_cached_trajectory(
+                trajectory_data=ego_expert_traj[i],
+                time_horizon=time_horizon,
+                sample_interval=sample_interval,
+            )
+            lateral_list.append(lat_idx)
+            longitudinal_list.append(lon_idx)
+
+        lateral_labels = torch.as_tensor(
+            lateral_list, dtype=torch.long, device=res["intent"]["lateral"].device
+        )
+        longitudinal_labels = torch.as_tensor(
+            longitudinal_list, dtype=torch.long, device=res["intent"]["longitudinal"].device
+        )
+
+        try:
+            # 检查是否为STDP模式（lateral_result应该是字典）
+            if isinstance(lateral_result, dict) and isinstance(longitudinal_result, dict):
+                stdp_metrics = intent_head.stdp_update(
+                    lateral_result=lateral_result,
+                    longitudinal_result=longitudinal_result,
+                    lateral_labels=lateral_labels,
+                    longitudinal_labels=longitudinal_labels,
+                )
+                return stdp_metrics
+            else:
+                # BP模式，不执行STDP更新
+                return {}
+        except Exception as e:
+            logger.warning(f"STDP更新失败: {e}")
+            return {}
+
+    def _log_stdp_metrics(self, stdp_metrics: Dict, prefix: str) -> None:
+        """
+        记录STDP相关指标
+
+        Args:
+            stdp_metrics: STDP指标字典
+            prefix: 前缀（train/val）
+        """
+        if not stdp_metrics:
+            return
+
+        for head_name, metrics in stdp_metrics.items():
+            if isinstance(metrics, dict):
+                for metric_name, value in metrics.items():
+                    self.log(
+                        f"stdp/{prefix}_{head_name}_{metric_name}",
+                        value,
+                        on_step=True,
+                        on_epoch=True,
+                        sync_dist=True,
+                    )
 
     def _log_step(
         self,
