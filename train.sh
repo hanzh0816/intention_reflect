@@ -79,7 +79,8 @@ echo ""
 # 执行训练
 # HYDRA_PARAMS 已包含从配置文件读取的所有参数
 # 额外的命令行参数可以追加（用于临时覆盖配置）
-python run_training.py py_func=train $HYDRA_PARAMS "$@"
+# 使用 ${@:2} 跳过第一个参数（配置文件名），只传递额外的参数给Python脚本
+python run_training.py py_func=train $HYDRA_PARAMS "${@:2}"
 
 # 捕获返回码
 EXIT_CODE=$?
