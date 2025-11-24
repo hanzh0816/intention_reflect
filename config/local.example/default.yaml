@@ -1,0 +1,52 @@
+# 默认本地配置示例
+# 复制此文件到 config/local/default.yaml 并修改为你的实际配置
+
+# 配置名称和版本（用于Wandb记录）
+name: "default_config"
+version: "1.0"
+
+# GPU设置
+gpu:
+  devices: "0" # CUDA_VISIBLE_DEVICES
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/data2/hzh/nuplan/dataset"
+  nuplan_maps_root: "/data2/hzh/nuplan/dataset/maps"
+  nuplan_exp_root: "/home/hzh/code/planning/planTF/work_dirs"
+  nuplan_db_files: "/data2/hzh/nuplan/dataset/nuplan-v1.1/splits/mini" # 用于测试
+
+# 数据集和缓存配置
+data:
+  scenario_builder: "nuplan" # nuplan / custom
+  cache:
+    cache_path: "/data2/hzh/nuplan/train_cache"
+    use_cache_without_dataset: true
+    cleanup_cache: false
+  # 场景过滤器：training_scenarios_1M / val14 / test14-random / test14-hard / single_right_turn / mini
+  scenario_filter: "training_scenarios_1M"
+
+# Worker配置
+worker:
+  type: "single_machine_thread_pool" # single_machine_thread_pool / multi_machine_thread_pool
+  max_workers: 64
+
+# 训练参数
+training:
+  batch_size: 64
+  num_workers: 64
+  lr: 1e-3
+  epochs: 25
+  warmup_epochs: 3
+  weight_decay: 0.0001
+
+# Wandb配置
+wandb:
+  mode: "online" # online / offline / disabled
+  project: "nuplan"
+  name: "intent_plantf_v1.1"
+  entity: null # 可选：wandb用户或团队名称
+
+# Lightning训练器设置
+lightning:
+  val_check_interval: 1.0

@@ -12,6 +12,7 @@ from nuplan.planning.training.modeling.types import (
     ScenarioListType,
     TargetsType,
 )
+from omegaconf import OmegaConf
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import _LRScheduler
 from torchmetrics import MetricCollection
@@ -46,6 +47,7 @@ class LightningTrainer(pl.LightningModule):
         self.intent_loss_weight = intent_loss_weight
 
     def on_fit_start(self) -> None:
+        # Initialize metrics
         metrics_collection = MetricCollection(
             {
                 "minADE1": minADE(k=1).to(self.device),
@@ -59,6 +61,10 @@ class LightningTrainer(pl.LightningModule):
             "train": metrics_collection.clone(prefix="train/"),
             "val": metrics_collection.clone(prefix="val/"),
         }
+
+        # 保存配置快照（仅在主进程执行）
+        if self.trainer.is_global_zero:
+            self._save_config_snapshot()
 
     def _step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], prefix: str
@@ -240,9 +246,17 @@ class LightningTrainer(pl.LightningModule):
         for head_name, metrics in stdp_metrics.items():
             if isinstance(metrics, dict):
                 for metric_name, value in metrics.items():
+                    # 确保值是浮点数类型
+                    try:
+                        float_value = float(value) if not isinstance(value, torch.Tensor) else value
+                    except (ValueError, TypeError):
+                        # 如果转换失败，跳过此指标
+                        logger.debug(f"Skipping STDP metric {head_name}/{metric_name}: cannot convert to float")
+                        continue
+
                     self.log(
                         f"stdp/{prefix}_{head_name}_{metric_name}",
-                        value,
+                        float_value,
                         on_step=True,
                         on_epoch=True,
                         sync_dist=True,
@@ -341,6 +355,58 @@ class LightningTrainer(pl.LightningModule):
         :return: model's predictions
         """
         return self.model(features)
+
+    def _save_config_snapshot(self) -> None:
+        """
+        从Hydra生成的配置中创建可访问的副本和易读摘要
+        """
+        try:
+            # Hydra会改变当前工作目录到输出目录
+            work_dir = os.getcwd()
+
+            # 读取 code/hydra/config.yaml
+            hydra_config_path = os.path.join(work_dir, "code", "hydra", "config.yaml")
+            if not os.path.exists(hydra_config_path):
+                logger.debug(f"Hydra config not found at {hydra_config_path}")
+                return
+
+            cfg = OmegaConf.load(hydra_config_path)
+
+            # 1. 复制config.yaml到顶级目录（便捷访问）
+            config_copy_path = os.path.join(work_dir, "config.yaml")
+            with open(config_copy_path, 'w') as f:
+                OmegaConf.save(cfg, f)
+
+            # 2. 生成易读摘要
+            summary_path = os.path.join(work_dir, "config_summary.txt")
+            with open(summary_path, 'w') as f:
+                f.write("=" * 80 + "\n")
+                f.write("TRAINING CONFIGURATION SUMMARY\n")
+                f.write("=" * 80 + "\n\n")
+
+                f.write("KEY TRAINING PARAMETERS:\n")
+                f.write(f"  Learning Rate: {cfg.get('lr', 'N/A')}\n")
+                f.write(f"  Epochs: {cfg.get('epochs', 'N/A')}\n")
+                f.write(f"  Warmup Epochs: {cfg.get('warmup_epochs', 'N/A')}\n")
+                f.write(f"  Batch Size: {cfg.get('data_loader', {}).get('params', {}).get('batch_size', 'N/A')}\n")
+                f.write(f"  Weight Decay: {cfg.get('weight_decay', 'N/A')}\n")
+                f.write(f"  Num Workers: {cfg.get('data_loader', {}).get('params', {}).get('num_workers', 'N/A')}\n\n")
+
+                f.write("WANDB CONFIGURATION:\n")
+                f.write(f"  Mode: {cfg.get('wandb', {}).get('mode', 'N/A')}\n")
+                f.write(f"  Project: {cfg.get('wandb', {}).get('project', 'N/A')}\n")
+                f.write(f"  Name: {cfg.get('wandb', {}).get('name', 'N/A')}\n\n")
+
+                f.write("=" * 80 + "\n")
+                f.write("FULL CONFIGURATION (YAML):\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(OmegaConf.to_yaml(cfg))
+
+            logger.info(f"Configuration snapshot saved to {work_dir}")
+
+        except Exception as e:
+            logger.debug(f"Failed to save config snapshot: {e}")
+
 
     def configure_optimizers(
         self,

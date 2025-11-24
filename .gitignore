@@ -163,3 +163,7 @@ outputs/
 checkpoints/
 work_dirs/
 nuplan-devkit/
+
+# 本地配置文件（用户个人配置，不提交到git）
+config/local/
+!config/local.example /
