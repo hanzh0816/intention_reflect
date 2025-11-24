@@ -1,5 +1,6 @@
 import logging
 import os
+import subprocess
 from typing import Dict, Tuple, Union
 
 import pytorch_lightning as pl
@@ -383,6 +384,18 @@ class LightningTrainer(pl.LightningModule):
                 f.write("=" * 80 + "\n")
                 f.write("TRAINING CONFIGURATION SUMMARY\n")
                 f.write("=" * 80 + "\n\n")
+
+                # 获取commit hash
+                try:
+                    commit_hash = subprocess.check_output(
+                        ['git', 'rev-parse', 'HEAD'],
+                        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                        stderr=subprocess.DEVNULL
+                    ).decode('utf-8').strip()
+                    f.write("COMMIT INFORMATION:\n")
+                    f.write(f"  Commit Hash: {commit_hash}\n\n")
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    logger.debug("Failed to retrieve commit hash")
 
                 f.write("KEY TRAINING PARAMETERS:\n")
                 f.write(f"  Learning Rate: {cfg.get('lr', 'N/A')}\n")

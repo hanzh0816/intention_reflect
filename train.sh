@@ -4,7 +4,7 @@
 #   ./train.sh              # 使用默认配置 (config/local/default.yaml)
 
 # 获取脚本所在目录
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
 # 配置文件路径
 CONFIG_NAME="${1:-default}"
