@@ -10,6 +10,9 @@ SCRIPT_DIR="$( cd "$( dirname "$0" )" && pwd )"
 CONFIG_NAME="${1:-default}"
 CONFIG_FILE="${SCRIPT_DIR}/config/local/${CONFIG_NAME}.yaml"
 
+# 移除第一个参数（配置文件名），剩余参数用于Hydra override
+shift 2>/dev/null || true
+
 # 检查配置文件是否存在
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "Error: Config file not found: $CONFIG_FILE"
@@ -79,8 +82,7 @@ echo ""
 # 执行训练
 # HYDRA_PARAMS 已包含从配置文件读取的所有参数
 # 额外的命令行参数可以追加（用于临时覆盖配置）
-# 使用 ${@:2} 跳过第一个参数（配置文件名），只传递额外的参数给Python脚本
-python run_training.py py_func=train $HYDRA_PARAMS "${@:2}"
+python run_training.py py_func=train $HYDRA_PARAMS "$@"
 
 # 捕获返回码
 EXIT_CODE=$?
