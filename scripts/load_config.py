@@ -71,7 +71,7 @@ def get_env_vars(config: Dict[str, Any]) -> Dict[str, str]:
 
 def get_config_params(config: Dict[str, Any]) -> List[str]:
     """
-    将配置转换为Hydra命令行参数列表
+    将配置转换为Hydra命令行参数列表（用于训练）
     """
     params = []
 
@@ -128,6 +128,38 @@ def get_config_params(config: Dict[str, Any]) -> List[str]:
     return params
 
 
+def get_cache_params(config: Dict[str, Any]) -> List[str]:
+    """
+    将配置转换为Hydra命令行参数列表（用于缓存）
+    """
+    params = []
+
+    # 添加基础配置
+    data = config.get('data', {})
+    scenario_builder = data.get('scenario_builder', 'nuplan')
+    scenario_filter = data.get('scenario_filter', 'training_scenarios_1M')
+
+    params.append(f"py_func=cache")
+    params.append(f"+training=train_planTF")
+    params.append(f"scenario_builder={scenario_builder}")
+    params.append(f"scenario_filter={scenario_filter}")
+
+    # Cache配置
+    cache = data.get('cache', {})
+    cache_path = cache.get('cache_path', '/data2/hzh/nuplan/exp/cache_plantf_1M')
+    cleanup = cache.get('cleanup_cache', True)
+
+    params.append(f"cache.cache_path={cache_path}")
+    params.append(f"cache.cleanup_cache={str(cleanup).lower()}")
+
+    # Worker配置（cache使用threads_per_node）
+    worker = config.get('worker', {})
+    threads_per_node = worker.get('threads_per_node', 40)
+    params.append(f"worker.threads_per_node={threads_per_node}")
+
+    return params
+
+
 def get_config_metadata(config: Dict[str, Any]) -> Dict[str, str]:
     """获取配置元数据（用于日志记录）"""
     return {
@@ -142,8 +174,10 @@ def get_config_metadata(config: Dict[str, Any]) -> Dict[str, str]:
 def main():
     parser = argparse.ArgumentParser(description='配置文件加载工具')
     parser.add_argument('config_file', help='YAML配置文件路径')
-    parser.add_argument('--mode', choices=['gpu', 'params', 'metadata', 'env', 'all', 'bash'],
+    parser.add_argument('--mode', choices=['gpu', 'params', 'metadata', 'env', 'all', 'bash', 'cache'],
                        default='all', help='输出模式')
+    parser.add_argument('--type', choices=['train', 'cache'], default='train',
+                       help='配置类型：train为训练，cache为缓存')
 
     args = parser.parse_args()
 
@@ -157,17 +191,21 @@ def main():
     config = load_config(str(config_path))
 
     # 根据模式输出
-    if args.mode in ['gpu', 'all']:
+    if args.mode in ['gpu', 'all', 'cache']:
         print(f"GPU_DEVICES={get_gpu_devices(config)}")
 
-    if args.mode in ['env', 'all']:
+    if args.mode in ['env', 'all', 'cache']:
         env_vars = get_env_vars(config)
         for key, value in env_vars.items():
             print(f"{key}={value}")
 
-    if args.mode in ['params', 'all', 'bash']:
+    if args.mode in ['params', 'all', 'bash', 'cache']:
         # 将HYDRA_PARAMS作为一个数组，每个参数一行（用于bash读取）
-        params = get_config_params(config)
+        if args.type == 'cache' or args.mode == 'cache':
+            params = get_cache_params(config)
+        else:
+            params = get_config_params(config)
+
         if args.mode == 'bash':
             # bash模式：每行一个参数
             for param in params:

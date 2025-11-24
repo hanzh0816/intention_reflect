@@ -1,0 +1,24 @@
+# Cache 1M数据集配置示例
+# 用于生成1M场景的训练缓存
+
+# 配置名称和版本
+name: "cache_1M"
+version: "1.0"
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/media/admin-vcciv-delta/Elements SE/nuplan/data/cache"
+  nuplan_maps_root: "/media/admin-vcciv-delta/Elements SE/nuplan/maps"
+  nuplan_exp_root: "/media/admin-vcciv-delta/Elements SE/hzh/nuplan/exp"
+
+# 数据集和缓存配置
+data:
+  scenario_builder: "nuplan"
+  cache:
+    cache_path: "/data2/hzh/nuplan/exp/cache_plantf_1M"  # 1M场景缓存路径
+    cleanup_cache: true  # 生成前清理旧缓存
+  scenario_filter: "training_scenarios_1M"  # 1M训练场景
+
+# Worker配置
+worker:
+  threads_per_node: 40  # 根据CPU核心数调整

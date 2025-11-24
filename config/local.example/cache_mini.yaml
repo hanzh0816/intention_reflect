@@ -1,0 +1,25 @@
+# Cache Mini数据集配置示例
+# 用于快速测试的mini场景缓存配置
+
+# 配置名称和版本
+name: "cache_mini"
+version: "1.0"
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/media/admin-vcciv-delta/Elements SE/nuplan/data/cache"
+  nuplan_maps_root: "/media/admin-vcciv-delta/Elements SE/nuplan/maps"
+  nuplan_exp_root: "/media/admin-vcciv-delta/Elements SE/hzh/nuplan/exp"
+  nuplan_db_files: "/data2/hzh/nuplan/dataset/nuplan-v1.1/splits/mini"  # mini数据集路径
+
+# 数据集和缓存配置
+data:
+  scenario_builder: "nuplan"
+  cache:
+    cache_path: "/data2/hzh/nuplan/exp/cache_plantf_mini"  # mini场景缓存路径
+    cleanup_cache: true  # 生成前清理旧缓存
+  scenario_filter: "mini"  # mini测试场景
+
+# Worker配置
+worker:
+  threads_per_node: 8  # mini数据集使用较少线程即可

@@ -1,0 +1,25 @@
+# Cache默认配置示例
+# 复制此文件到 config/local/cache_default.yaml 并修改为你的实际配置
+
+# 配置名称和版本
+name: "cache_default"
+version: "1.0"
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/media/admin-vcciv-delta/Elements SE/nuplan/data/cache"
+  nuplan_maps_root: "/media/admin-vcciv-delta/Elements SE/nuplan/maps"
+  nuplan_exp_root: "/media/admin-vcciv-delta/Elements SE/hzh/nuplan/exp"
+
+# 数据集和缓存配置
+data:
+  scenario_builder: "nuplan" # nuplan / custom
+  cache:
+    cache_path: "/data2/hzh/nuplan/exp/cache_plantf_1M"
+    cleanup_cache: true  # 是否清理旧缓存
+  # 场景过滤器：training_scenarios_1M / val14 / test14-random / test14-hard / single_right_turn / mini
+  scenario_filter: "training_scenarios_1M"
+
+# Worker配置（缓存使用threads_per_node）
+worker:
+  threads_per_node: 40  # 并行线程数
