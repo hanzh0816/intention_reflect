@@ -1,0 +1,27 @@
+# 评估配置示例
+# 复制此文件到 config/local/eval_default.yaml 并修改为你的实际配置
+
+# 配置名称和版本
+name: "eval_default"
+version: "1.0"
+
+# GPU设置
+gpu:
+  devices: "0" # CUDA_VISIBLE_DEVICES
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/data1/planning/nuplan/data/cache"
+  nuplan_maps_root: "/data1/planning/nuplan/maps"
+  nuplan_exp_root: "/data1/planning/intent_reflect/work_dirs"
+
+worker:
+  threads_per_node: 40
+
+# 评估配置
+eval:
+  planner: "planTF"
+  scenario_builder: "nuplan"
+  scenario_filter: "test14-random"
+  checkpoint:
+    path: "/data1/planning/intention_reflect/last.ckpt"

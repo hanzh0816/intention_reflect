@@ -1,11 +1,13 @@
 import logging
 import os
+import subprocess
 from typing import Dict, Tuple, Union
 
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from omegaconf import OmegaConf
 from nuplan.planning.training.modeling.torch_module_wrapper import TorchModuleWrapper
 from nuplan.planning.training.modeling.types import (
     FeaturesType,
@@ -57,6 +59,7 @@ class LightningTrainer(pl.LightningModule):
             "train": metrics_collection.clone(prefix="train/"),
             "val": metrics_collection.clone(prefix="val/"),
         }
+        self._save_config_snapshot()
 
     def _step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], prefix: str
@@ -310,3 +313,67 @@ class LightningTrainer(pl.LightningModule):
         )
 
         return [optimizer], [scheduler]
+
+    def _save_config_snapshot(self) -> None:
+        """
+        从Hydra生成的配置中创建可访问的副本和易读摘要
+        """
+        try:
+            # Hydra会改变当前工作目录到输出目录
+            work_dir = os.getcwd()
+
+            # 读取 code/hydra/config.yaml
+            hydra_config_path = os.path.join(work_dir, "code", "hydra", "config.yaml")
+            if not os.path.exists(hydra_config_path):
+                logger.debug(f"Hydra config not found at {hydra_config_path}")
+                return
+
+            cfg = OmegaConf.load(hydra_config_path)
+
+            # 1. 复制config.yaml到顶级目录（便捷访问）
+            config_copy_path = os.path.join(work_dir, "config.yaml")
+            with open(config_copy_path, 'w') as f:
+                OmegaConf.save(cfg, f)
+
+            # 2. 生成易读摘要
+            summary_path = os.path.join(work_dir, "config_summary.txt")
+            with open(summary_path, 'w') as f:
+                f.write("=" * 80 + "\n")
+                f.write("TRAINING CONFIGURATION SUMMARY\n")
+                f.write("=" * 80 + "\n\n")
+
+                # 获取commit hash
+                try:
+                    commit_hash = subprocess.check_output(
+                        ['git', 'rev-parse', 'HEAD'],
+                        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+                        stderr=subprocess.DEVNULL
+                    ).decode('utf-8').strip()
+                    f.write("COMMIT INFORMATION:\n")
+                    f.write(f"  Commit Hash: {commit_hash}\n\n")
+                except (subprocess.CalledProcessError, FileNotFoundError):
+                    logger.debug("Failed to retrieve commit hash")
+
+                f.write("KEY TRAINING PARAMETERS:\n")
+                f.write(f"  Learning Rate: {cfg.get('lr', 'N/A')}\n")
+                f.write(f"  Epochs: {cfg.get('epochs', 'N/A')}\n")
+                f.write(f"  Warmup Epochs: {cfg.get('warmup_epochs', 'N/A')}\n")
+                f.write(f"  Batch Size: {cfg.get('data_loader', {}).get('params', {}).get('batch_size', 'N/A')}\n")
+                f.write(f"  Weight Decay: {cfg.get('weight_decay', 'N/A')}\n")
+                f.write(f"  Num Workers: {cfg.get('data_loader', {}).get('params', {}).get('num_workers', 'N/A')}\n\n")
+
+                f.write("WANDB CONFIGURATION:\n")
+                f.write(f"  Mode: {cfg.get('wandb', {}).get('mode', 'N/A')}\n")
+                f.write(f"  Project: {cfg.get('wandb', {}).get('project', 'N/A')}\n")
+                f.write(f"  Name: {cfg.get('wandb', {}).get('name', 'N/A')}\n\n")
+
+                f.write("=" * 80 + "\n")
+                f.write("FULL CONFIGURATION (YAML):\n")
+                f.write("=" * 80 + "\n\n")
+                f.write(OmegaConf.to_yaml(cfg))
+
+            logger.info(f"Configuration snapshot saved to {work_dir}")
+
+        except Exception as e:
+            logger.warning(f"Failed to save config snapshot: {e}")
+
