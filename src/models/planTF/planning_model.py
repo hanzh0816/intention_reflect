@@ -42,7 +42,7 @@ class PlanningModel(TorchModuleWrapper):
         intention_decoder_depth=2,
         lateral_classes=5,
         longitudinal_classes=4,
-        snn_time_steps=4,  # SNN时间步数
+        snn_time_steps=8,  # SNN时间步数
         snn_neuron_cfg=None,  # SNN神经元配置
         use_stdp=False,  # 是否使用STDP训练模式
         stdp_config=None,  # STDP配置
