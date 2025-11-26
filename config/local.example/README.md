@@ -11,9 +11,8 @@
 cp config/local.example/default.yaml config/local/default.yaml
 
 # （可选）复制其他预设配置
-cp config/local.example/debug.yaml config/local/debug.yaml
-cp config/local.example/full_train.yaml config/local/full_train.yaml
-cp config/local.example/quick_test.yaml config/local/quick_test.yaml
+cp config/local.example/cache_default.yaml config/local/cache_default.yaml
+cp config/local.example/eval_default.yaml config/local/eval_default.yaml
 ```
 
 ### 2. 编辑本地配置
@@ -39,14 +38,16 @@ cp config/local.example/quick_test.yaml config/local/quick_test.yaml
 ./train.sh my_custom_config
 ```
 
-### 4. 启动测试
+### 4. 启动评估
 
 ```bash
-# 使用默认配置进行测试
-./test_open_loop.sh /path/to/checkpoint.ckpt
+# 使用默认配置进行评估（一次评估一个challenge）
+./eval.sh eval_default closed_loop_nonreactive_agents
+./eval.sh eval_default closed_loop_reactive_agents
+./eval.sh eval_default open_loop_boxes
 
 # 或指定特定配置
-./test_open_loop.sh /path/to/checkpoint.ckpt debug
+./eval.sh my_eval_config closed_loop_nonreactive_agents
 ```
 
 ## 配置说明
@@ -74,6 +75,17 @@ cp config/local.example/quick_test.yaml config/local/quick_test.yaml
 - 中等batch_size（32）
 - 仅验证（epochs=1）
 - Wandb离线模式
+
+### eval_default.yaml
+评估配置，用于在不同challenge上评估模型：
+- 单GPU运行（GPU 0）
+- scenario_builder: nuplan_challenge
+- threads_per_node: 20
+- 需要指定checkpoint路径
+- 支持三个challenge：
+  - closed_loop_nonreactive_agents
+  - closed_loop_reactive_agents
+  - open_loop_boxes
 
 ## 配置优先级
 

@@ -160,6 +160,36 @@ def get_cache_params(config: Dict[str, Any]) -> List[str]:
     return params
 
 
+def get_eval_params(config: Dict[str, Any]) -> List[str]:
+    """
+    将配置转换为Hydra命令行参数列表（用于评估）
+    """
+    params = []
+    # 添加Worker配置
+    worker = config.get('worker', {})
+    threads_per_node = worker.get('threads_per_node', 40)
+    params.append(f"worker.threads_per_node={threads_per_node}")
+
+    # 评估配置
+    eval_config = config.get('eval', {})
+    planner = eval_config.get('planner', 'planTF')
+    scenario_builder = eval_config.get('scenario_builder', 'nuplan_challenge')
+    scenario_filter = eval_config.get('scenario_filter', 'test14-random')
+
+    params.append(f"planner={planner}")
+    params.append(f"scenario_builder={scenario_builder}")
+    params.append(f"scenario_filter={scenario_filter}")
+    params.append("verbose=true")
+
+    # Checkpoint配置
+    checkpoint_config = eval_config.get('checkpoint', {})
+    checkpoint_path = checkpoint_config.get('path', '')
+    if checkpoint_path:
+        params.append(f"planner.imitation_planner.planner_ckpt={checkpoint_path}")
+
+    return params
+
+
 def get_config_metadata(config: Dict[str, Any]) -> Dict[str, str]:
     """获取配置元数据（用于日志记录）"""
     return {
@@ -174,10 +204,10 @@ def get_config_metadata(config: Dict[str, Any]) -> Dict[str, str]:
 def main():
     parser = argparse.ArgumentParser(description='配置文件加载工具')
     parser.add_argument('config_file', help='YAML配置文件路径')
-    parser.add_argument('--mode', choices=['gpu', 'params', 'metadata', 'env', 'all', 'bash', 'cache'],
+    parser.add_argument('--mode', choices=['gpu', 'params', 'metadata', 'env', 'all', 'bash', 'cache', 'eval'],
                        default='all', help='输出模式')
-    parser.add_argument('--type', choices=['train', 'cache'], default='train',
-                       help='配置类型：train为训练，cache为缓存')
+    parser.add_argument('--type', choices=['train', 'cache', 'eval'], default='train',
+                       help='配置类型：train为训练，cache为缓存，eval为评估')
 
     args = parser.parse_args()
 
@@ -191,18 +221,20 @@ def main():
     config = load_config(str(config_path))
 
     # 根据模式输出
-    if args.mode in ['gpu', 'all', 'cache']:
+    if args.mode in ['gpu', 'all', 'cache', 'eval']:
         print(f"GPU_DEVICES={get_gpu_devices(config)}")
 
-    if args.mode in ['env', 'all', 'cache']:
+    if args.mode in ['env', 'all', 'cache', 'eval']:
         env_vars = get_env_vars(config)
         for key, value in env_vars.items():
             print(f"{key}={value}")
 
-    if args.mode in ['params', 'all', 'bash', 'cache']:
+    if args.mode in ['params', 'all', 'bash', 'cache', 'eval']:
         # 将HYDRA_PARAMS作为一个数组，每个参数一行（用于bash读取）
         if args.type == 'cache' or args.mode == 'cache':
             params = get_cache_params(config)
+        elif args.type == 'eval' or args.mode == 'eval':
+            params = get_eval_params(config)
         else:
             params = get_config_params(config)
 
