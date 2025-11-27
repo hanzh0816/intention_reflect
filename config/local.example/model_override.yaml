@@ -1,0 +1,103 @@
+# 模型参数覆盖示例配置
+# 复制此文件到 config/local/your_config.yaml 并按需修改
+# 这个示例展示了如何在不修改版本控制中的config/model/planTF.yaml的情况下覆盖模型参数
+
+# 配置名称和版本（用于Wandb记录）
+name: "model_override_config"
+version: "1.0"
+
+# GPU设置
+gpu:
+  devices: "0"
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/data2/hzh/nuplan/dataset"
+  nuplan_maps_root: "/data2/hzh/nuplan/dataset/maps"
+  nuplan_exp_root: "/home/hzh/code/planning/planTF/work_dirs"
+
+# 数据集和缓存配置
+data:
+  scenario_builder: "nuplan"
+  cache:
+    cache_path: "/data2/hzh/nuplan/train_cache"
+    use_cache_without_dataset: true
+    cleanup_cache: false
+  scenario_filter: "training_scenarios_1M"
+
+# Worker配置
+worker:
+  type: "single_machine_thread_pool"
+  max_workers: 64
+
+# 训练参数
+training:
+  batch_size: 64
+  num_workers: 64
+  lr: 1e-3
+  epochs: 25
+  warmup_epochs: 3
+  weight_decay: 0.0001
+
+# Lightning训练器设置
+lightning:
+  val_check_interval: 1.0
+
+# Wandb配置
+wandb:
+  mode: "disabled"
+  project: "nuplan"
+  name: "model_override_test"
+
+# =====================================================
+# 模型参数覆盖 - 覆盖 config/model/planTF.yaml 中的参数
+# =====================================================
+model:
+  # 基础模型参数
+  dim: 128
+  state_channel: 8  # 覆盖默认值6为8
+  polygon_channel: 6
+  history_channel: 9
+  history_steps: 21
+  future_steps: 80
+  encoder_depth: 4
+  drop_path: 0.2
+  num_heads: 8
+  num_modes: 6
+  state_dropout: 0.75
+  use_ego_history: false
+  state_attn_encoder: true
+
+  # 如果需要覆盖嵌套参数（如feature_builder、snn_cfg等），可以这样写：
+  # feature_builder:
+  #   radius: 150  # 覆盖默认值100为150
+  #   history_horizon: 3  # 覆盖默认值2为3
+  #
+  # snn_cfg:
+  #   neuron_cfg:
+  #     tau: 2.5  # 覆盖默认值2.0为2.5
+  #   time_steps: 16  # 覆盖默认值8为16
+  #   use_stdp: false  # 禁用STDP
+
+# 使用说明：
+# 1. 将此文件复制到 config/local/ 目录：
+#    cp config/local.example/model_override.yaml config/local/my_experiment.yaml
+#
+# 2. 编辑 config/local/my_experiment.yaml，修改需要覆盖的参数
+#
+# 3. 运行训练脚本：
+#    ./train.sh my_experiment
+#
+# 说明：
+# - 只需要在 model: 部分添加你想覆盖的参数
+# - 未在 model: 中指定的参数将使用 config/model/planTF.yaml 中的默认值
+# - model: 部分会自动展平为 Hydra 参数（训练时使用 model. 前缀）：
+#   model.state_channel=8
+#   model.dim=128
+#   model.feature_builder.radius=150
+#   等等
+#
+# 对比评估配置：
+# - 训练时使用：model.xxx=value
+# - 评估时使用：+model.xxx=value（+ 前缀表示新增参数）
+

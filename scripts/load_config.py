@@ -119,6 +119,13 @@ def get_config_params(config: Dict[str, Any]) -> List[str]:
     params.append(f"wandb.project={wandb.get('project', 'nuplan')}")
     params.append(f"wandb.name={wandb.get('name', 'experiment')}")
 
+    # 添加模型参数覆盖（支持覆盖config/model/planTF.yaml中的参数）
+    model = config.get('model', {})
+    if model:
+        model_params = flatten_dict(model)
+        for key, value in model_params.items():
+            params.append(f"model.{key}={value}")
+
     # 添加配置版本信息
     config_name = config.get('name', 'default')
     config_version = config.get('version', '1.0')
@@ -186,6 +193,14 @@ def get_eval_params(config: Dict[str, Any]) -> List[str]:
     checkpoint_path = checkpoint_config.get('path', '')
     if checkpoint_path:
         params.append(f"planner.imitation_planner.planner_ckpt={checkpoint_path}")
+
+    # 添加模型参数覆盖（支持覆盖config/model/planTF.yaml中的参数）
+    # 评估时使用 + 前缀来添加新参数
+    model = config.get('model', {})
+    if model:
+        model_params = flatten_dict(model)
+        for key, value in model_params.items():
+            params.append(f"+model.{key}={value}")
 
     return params
 
