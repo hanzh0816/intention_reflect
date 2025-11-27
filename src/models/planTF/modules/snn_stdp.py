@@ -11,29 +11,34 @@ from typing import Dict, Optional, Tuple
 class STDPTrace:
     """管理pre和post-synaptic traces"""
 
-    def __init__(self, tau_pre: float = 10.0, tau_post: float = 10.0, device: str = "cpu"):
+    def __init__(self, tau_pre: float = 10.0, tau_post: float = 10.0):
         """
         Args:
             tau_pre: pre-synaptic trace时间常数
             tau_post: post-synaptic trace时间常数
-            device: 计算设备
         """
         self.tau_pre = tau_pre
         self.tau_post = tau_post
-        self.device = device
 
-        # 衰减因子
-        self.decay_pre = torch.exp(torch.tensor(-1.0 / tau_pre)).to(device)
-        self.decay_post = torch.exp(torch.tensor(-1.0 / tau_post)).to(device)
+        # 衰减因子（CPU上创建，后续动态移动到正确设备）
+        self.decay_pre = torch.exp(torch.tensor(-1.0 / tau_pre))
+        self.decay_post = torch.exp(torch.tensor(-1.0 / tau_post))
 
         # traces初始化
         self.x_pre = None  # pre-synaptic trace
         self.x_post = None  # post-synaptic trace
 
-    def reset(self, batch_size: int, pre_size: int, post_size: int):
-        """重置traces"""
-        self.x_pre = torch.zeros((batch_size, pre_size), device=self.device)
-        self.x_post = torch.zeros((batch_size, post_size), device=self.device)
+    def reset(self, batch_size: int, pre_size: int, post_size: int, device: torch.device):
+        """重置traces
+
+        Args:
+            batch_size: 批量大小
+            pre_size: 突触前神经元数量
+            post_size: 突触后神经元数量
+            device: 目标设备
+        """
+        self.x_pre = torch.zeros((batch_size, pre_size), device=device)
+        self.x_post = torch.zeros((batch_size, post_size), device=device)
 
     def update(self, pre_spikes: torch.Tensor, post_spikes: torch.Tensor):
         """
@@ -43,9 +48,14 @@ class STDPTrace:
             pre_spikes: [B, pre_size] 突触前脉冲
             post_spikes: [B, post_size] 突触后脉冲
         """
+        # 确保衰减因子在正确的设备上
+        device = pre_spikes.device
+        decay_pre = self.decay_pre.to(device)
+        decay_post = self.decay_post.to(device)
+
         # 衰减并添加新spike
-        self.x_pre = self.decay_pre * self.x_pre + pre_spikes
-        self.x_post = self.decay_post * self.x_post + post_spikes
+        self.x_pre = decay_pre * self.x_pre + pre_spikes
+        self.x_post = decay_post * self.x_post + post_spikes
 
     def get_traces(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """返回当前traces"""
@@ -61,7 +71,6 @@ class STDPLearner:
         A_post: float = -0.01,  # LTD幅度
         tau_pre: float = 10.0,
         tau_post: float = 10.0,
-        device: str = "cpu",
     ):
         """
         Args:
@@ -72,8 +81,7 @@ class STDPLearner:
         """
         self.A_pre = A_pre
         self.A_post = A_post
-        self.device = device
-        self.trace = STDPTrace(tau_pre=tau_pre, tau_post=tau_post, device=device)
+        self.trace = STDPTrace(tau_pre=tau_pre, tau_post=tau_post)
 
     def compute_weight_change(
         self,
@@ -106,9 +114,16 @@ class STDPLearner:
 
         return dw
 
-    def reset(self, batch_size: int, pre_size: int, post_size: int):
-        """重置traces"""
-        self.trace.reset(batch_size, pre_size, post_size)
+    def reset(self, batch_size: int, pre_size: int, post_size: int, device: torch.device):
+        """重置traces
+
+        Args:
+            batch_size: 批量大小
+            pre_size: 突触前神经元数量
+            post_size: 突触后神经元数量
+            device: 目标设备
+        """
+        self.trace.reset(batch_size, pre_size, post_size, device)
 
 
 class RewardModulatedSTDPUpdater:
@@ -121,7 +136,6 @@ class RewardModulatedSTDPUpdater:
         A_post: float = -0.01,
         tau_pre: float = 10.0,
         tau_post: float = 10.0,
-        device: str = "cpu",
     ):
         """
         Args:
@@ -130,12 +144,10 @@ class RewardModulatedSTDPUpdater:
             A_post: LTD幅度
             tau_pre: pre-synaptic trace时间常数
             tau_post: post-synaptic trace时间常数
-            device: 计算设备
         """
         self.learning_rate = learning_rate
-        self.device = device
         self.stdp_learner = STDPLearner(
-            A_pre=A_pre, A_post=A_post, tau_pre=tau_pre, tau_post=tau_post, device=device
+            A_pre=A_pre, A_post=A_post, tau_pre=tau_pre, tau_post=tau_post
         )
 
         # 统计信息
@@ -157,10 +169,11 @@ class RewardModulatedSTDPUpdater:
                    正确类对应+1，错误类对应-1
         """
         B, num_classes = logits.shape
-        reward = torch.ones((B, num_classes), device=self.device) * -1.0
+        device = logits.device
+        reward = torch.ones((B, num_classes), device=device) * -1.0
 
         # 设置正确类的reward为+1
-        batch_idx = torch.arange(B, device=self.device)
+        batch_idx = torch.arange(B, device=device)
         reward[batch_idx, labels] = 1.0
 
         return reward
@@ -207,9 +220,10 @@ class RewardModulatedSTDPUpdater:
         """
         T, B, pre_size = pre_spikes_sequence.shape
         out_features = post_spikes_sequence.shape[-1]
+        device = weight.device
 
-        # 重置traces
-        self.stdp_learner.reset(B, pre_size, out_features)
+        # 重置traces - 传递目标设备
+        self.stdp_learner.reset(B, pre_size, out_features, device)
 
         # 在时间维度上累积STDP权重变化
         total_weight_change = torch.zeros_like(weight)

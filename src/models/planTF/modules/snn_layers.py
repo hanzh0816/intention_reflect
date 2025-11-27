@@ -364,7 +364,6 @@ class SNNIntentHeads(nn.Module):
                 A_post=self.stdp_config['A_post'],
                 tau_pre=self.stdp_config['tau_pre'],
                 tau_post=self.stdp_config['tau_post'],
-                device='cuda' if torch.cuda.is_available() else 'cpu',
             )
             self.longitudinal_stdp_updater = RewardModulatedSTDPUpdater(
                 learning_rate=self.stdp_config['learning_rate'],
@@ -372,7 +371,6 @@ class SNNIntentHeads(nn.Module):
                 A_post=self.stdp_config['A_post'],
                 tau_pre=self.stdp_config['tau_pre'],
                 tau_post=self.stdp_config['tau_post'],
-                device='cuda' if torch.cuda.is_available() else 'cpu',
             )
 
     def forward(self, intention_feature: torch.Tensor):
