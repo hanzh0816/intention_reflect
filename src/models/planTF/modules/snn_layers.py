@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Optional, Union
 
-from .snn_utlis import LIFNeuron, get_default_neuron_config
+from .snn_utlis import LIFNeuron
 
 
 class SNNLateralIntentHead(nn.Module):
@@ -20,10 +20,8 @@ class SNNLateralIntentHead(nn.Module):
         in_features: 输入特征维度
         num_classes: 分类数（默认5）
         hidden_dims: 隐藏层维度列表（默认[64]）
-        neuron_cfg: LIF神经元配置
+        snn_cfg: SNN配置字典，包含神经元配置和时间步数
         dropout: dropout比例
-        time_steps: 时间步数
-        use_stdp: 是否使用STDP训练模式（默认False）
     """
 
     def __init__(
@@ -46,7 +44,6 @@ class SNNLateralIntentHead(nn.Module):
         self.time_steps = snn_cfg["time_steps"]
         self.use_stdp = snn_cfg["use_stdp"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = self.time_steps
 
         # SNN分类器
         self.classifier = SNNClassifier(
@@ -116,7 +113,7 @@ class SNNLateralIntentHead(nn.Module):
 
         # 处理两种模式的返回值
         if isinstance(result, dict):
-            logits = result['logits']
+            logits = result["logits"]
         else:
             logits = result
 
@@ -150,10 +147,8 @@ class SNNLongitudinalIntentHead(nn.Module):
         in_features: 输入特征维度
         num_classes: 分类数（默认4）
         hidden_dims: 隐藏层维度列表（默认[64]）
-        neuron_cfg: LIF神经元配置
+        snn_cfg: SNN配置字典，包含神经元配置和时间步数
         dropout: dropout比例
-        time_steps: 时间步数
-        use_stdp: 是否使用STDP训练模式（默认False）
     """
 
     def __init__(
@@ -176,7 +171,6 @@ class SNNLongitudinalIntentHead(nn.Module):
         self.time_steps = snn_cfg["time_steps"]
         self.use_stdp = snn_cfg["use_stdp"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = self.time_steps
 
         # SNN分类器
         self.classifier = SNNClassifier(
@@ -246,7 +240,7 @@ class SNNLongitudinalIntentHead(nn.Module):
 
         # 处理两种模式的返回值
         if isinstance(result, dict):
-            logits = result['logits']
+            logits = result["logits"]
         else:
             logits = result
 
@@ -280,11 +274,9 @@ class SNNIntentHeads(nn.Module):
         longitudinal_classes: 纵向意图类别数（默认4）
         lateral_hidden_dims: 横向分类隐藏层维度
         longitudinal_hidden_dims: 纵向分类隐藏层维度
-        neuron_cfg: LIF神经元配置
+        snn_cfg: SNN配置字典，包含神经元配置和时间步数
         dropout: dropout比例
         time_steps: 时间步数
-        use_stdp: 是否使用STDP训练模式（默认False）
-        stdp_config: STDP相关配置字典
     """
 
     def __init__(
@@ -310,16 +302,8 @@ class SNNIntentHeads(nn.Module):
         # 从snn_cfg中提取配置
         self.use_stdp = snn_cfg["use_stdp"]
         self.time_steps = snn_cfg["time_steps"]
-        self.stdp_cfg = snn_cfg["stdp_cfg"]
-
-        # STDP配置
-        self.stdp_config = {
-            'learning_rate': self.stdp_cfg.get('learning_rate', 0.001),
-            'A_pre': self.stdp_cfg.get('A_pre', 0.01),
-            'A_post': self.stdp_cfg.get('A_post', -0.01),
-            'tau_pre': self.stdp_cfg.get('tau_pre', 10.0),
-            'tau_post': self.stdp_cfg.get('tau_post', 10.0),
-        }
+        self.stdp_cfg = snn_cfg["stdp_cfg"].copy()
+        self.neuron_cfg = snn_cfg["neuron_cfg"].copy()
 
         # 横向意图头
         self.lateral_head = SNNLateralIntentHead(
@@ -344,20 +328,8 @@ class SNNIntentHeads(nn.Module):
             from .snn_stdp import RewardModulatedSTDPUpdater
 
             # 为两个头各创建一个STDP更新器
-            self.lateral_stdp_updater = RewardModulatedSTDPUpdater(
-                learning_rate=self.stdp_config['learning_rate'],
-                A_pre=self.stdp_config['A_pre'],
-                A_post=self.stdp_config['A_post'],
-                tau_pre=self.stdp_config['tau_pre'],
-                tau_post=self.stdp_config['tau_post'],
-            )
-            self.longitudinal_stdp_updater = RewardModulatedSTDPUpdater(
-                learning_rate=self.stdp_config['learning_rate'],
-                A_pre=self.stdp_config['A_pre'],
-                A_post=self.stdp_config['A_post'],
-                tau_pre=self.stdp_config['tau_pre'],
-                tau_post=self.stdp_config['tau_post'],
-            )
+            self.lateral_stdp_updater = RewardModulatedSTDPUpdater(**self.stdp_cfg)
+            self.longitudinal_stdp_updater = RewardModulatedSTDPUpdater(**self.stdp_cfg)
 
     def forward(self, intention_feature: torch.Tensor):
         """
@@ -393,12 +365,12 @@ class SNNIntentHeads(nn.Module):
 
         # 处理两种模式的返回值
         if isinstance(lateral_result, dict):
-            lateral_logits = lateral_result['logits']
+            lateral_logits = lateral_result["logits"]
         else:
             lateral_logits = lateral_result
 
         if isinstance(longitudinal_result, dict):
-            longitudinal_logits = longitudinal_result['logits']
+            longitudinal_logits = longitudinal_result["logits"]
         else:
             longitudinal_logits = longitudinal_result
 
@@ -473,9 +445,9 @@ class SNNIntentHeads(nn.Module):
 
         # 更新横向意图头的权重
         if isinstance(lateral_result, dict):
-            lateral_hidden_spikes = lateral_result['hidden_output']  # [T, B, hidden_dim]
-            lateral_output_spikes = lateral_result['spike_trains']  # [T, B, num_classes]
-            lateral_logits = lateral_result['logits']  # [B, num_classes]
+            lateral_hidden_spikes = lateral_result["hidden_output"]  # [T, B, hidden_dim]
+            lateral_output_spikes = lateral_result["spike_trains"]  # [T, B, num_classes]
+            lateral_logits = lateral_result["logits"]  # [B, num_classes]
 
             # 获取output_linear权重并进行STDP更新
             output_linear = self.lateral_head.classifier.output_linear
@@ -493,13 +465,13 @@ class SNNIntentHeads(nn.Module):
                     output_linear.weight.data, lateral_weight_delta
                 )
 
-            stdp_metrics['lateral'] = self.lateral_stdp_updater.get_metrics()
+            stdp_metrics["lateral"] = self.lateral_stdp_updater.get_metrics()
 
         # 更新纵向意图头的权重
         if isinstance(longitudinal_result, dict):
-            longitudinal_hidden_spikes = longitudinal_result['hidden_output']  # [T, B, hidden_dim]
-            longitudinal_output_spikes = longitudinal_result['spike_trains']  # [T, B, num_classes]
-            longitudinal_logits = longitudinal_result['logits']  # [B, num_classes]
+            longitudinal_hidden_spikes = longitudinal_result["hidden_output"]  # [T, B, hidden_dim]
+            longitudinal_output_spikes = longitudinal_result["spike_trains"]  # [T, B, num_classes]
+            longitudinal_logits = longitudinal_result["logits"]  # [B, num_classes]
 
             # 获取output_linear权重并进行STDP更新
             output_linear = self.longitudinal_head.classifier.output_linear
@@ -517,7 +489,7 @@ class SNNIntentHeads(nn.Module):
                     output_linear.weight.data, longitudinal_weight_delta
                 )
 
-            stdp_metrics['longitudinal'] = self.longitudinal_stdp_updater.get_metrics()
+            stdp_metrics["longitudinal"] = self.longitudinal_stdp_updater.get_metrics()
 
         return stdp_metrics
 
@@ -538,9 +510,8 @@ class SNNIntentionMLPDecoder(nn.Module):
         dim: 特征维度
         depth: MLP层数（默认2）
         hidden_dim: 隐藏层维度（默认与输入相同）
-        neuron_cfg: LIF神经元配置
+        snn_cfg: SNN配置字典，包含神经元参数
         dropout: dropout比例
-        time_steps: 时间步数
     """
 
     def __init__(
@@ -562,7 +533,6 @@ class SNNIntentionMLPDecoder(nn.Module):
         neuron_cfg = snn_cfg["neuron_cfg"]
         self.time_steps = snn_cfg["time_steps"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = self.time_steps
 
         # 时间维度扩展器
         self.time_expander = TimeDimExpander(time_steps=self.time_steps)
@@ -796,9 +766,9 @@ class SNNClassifier(nn.Module):
         logits = x.mean(dim=0)  # [B, num_classes] 时间平均用于分类
 
         return {
-            'logits': logits,
-            'spike_trains': spike_trains,
-            'hidden_output': hidden_output,
+            "logits": logits,
+            "spike_trains": spike_trains,
+            "hidden_output": hidden_output,
         }
 
 

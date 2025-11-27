@@ -67,11 +67,9 @@ class LIFNeuron(nn.Module):
         v_reset: float = 0.0,
         detach_reset: bool = True,
         backend: str = "torch",
-        time_steps: int = 4,
     ):
         super().__init__()
         self.spike_mode = spike_mode
-        self.time_steps = time_steps
 
         if SPIKING_JELLY_AVAILABLE:
             # 使用SpikingJelly的神经元
@@ -176,20 +174,6 @@ class LIFNeuron(nn.Module):
         return self.lif_neuron(x)
 
 
-
-def get_default_neuron_config():
-    """获取默认神经元配置（已废弃，改用get_default_snn_config）"""
-    return {
-        "spike_mode": "lif",
-        "tau": 2.0,
-        "v_threshold": 1.0,
-        "v_reset": 0.0,
-        "detach_reset": True,
-        "backend": "torch",
-        "time_steps": 4,
-    }
-
-
 def get_default_snn_config():
     """获取默认SNN配置（统一配置对象）
 
@@ -217,7 +201,7 @@ def get_default_snn_config():
             "A_post": -0.01,
             "tau_pre": 10.0,
             "tau_post": 10.0,
-        }
+        },
     }
 
 
