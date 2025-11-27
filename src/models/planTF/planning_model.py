@@ -16,6 +16,7 @@ from .modules.intention_decoder import IntentionDecoder
 from .modules.trajectory_decoder import TrajectoryDecoder
 
 from .modules.snn_layers import SNNIntentHeads, SNNIntentionMLPDecoder
+from .modules.snn_utlis import get_default_snn_config
 
 # no meaning, required by nuplan
 trajectory_sampling = TrajectorySampling(num_poses=8, time_horizon=8, interval_length=1)
@@ -42,16 +43,17 @@ class PlanningModel(TorchModuleWrapper):
         intention_decoder_depth=2,
         lateral_classes=5,
         longitudinal_classes=4,
-        snn_time_steps=8,  # SNN时间步数
-        snn_neuron_cfg=None,  # SNN神经元配置
-        use_stdp=False,  # 是否使用STDP训练模式
-        stdp_config=None,  # STDP配置
+        snn_cfg=None,  # 统一的SNN配置
     ) -> None:
         super().__init__(
             feature_builders=[feature_builder],
             target_builders=[EgoTrajectoryTargetBuilder(trajectory_sampling)],
             future_trajectory_sampling=trajectory_sampling,
         )
+
+        # 处理SNN配置：如果为None，使用默认配置
+        if snn_cfg is None:
+            snn_cfg = get_default_snn_config()
 
         self.dim = dim
         self.history_steps = history_steps
@@ -89,17 +91,13 @@ class PlanningModel(TorchModuleWrapper):
             dim=dim,
             depth=intention_decoder_depth,
             hidden_dim=dim * 4,
-            time_steps=snn_time_steps,
-            neuron_cfg=snn_neuron_cfg,
+            snn_cfg=snn_cfg,
         )
         self.intent_head = SNNIntentHeads(
             in_features=dim,
             lateral_classes=lateral_classes,
             longitudinal_classes=longitudinal_classes,
-            neuron_cfg=snn_neuron_cfg,
-            time_steps=snn_time_steps,
-            use_stdp=use_stdp,
-            stdp_config=stdp_config,
+            snn_cfg=snn_cfg,
         )
 
         self.trajectory_decoder = TrajectoryDecoder(

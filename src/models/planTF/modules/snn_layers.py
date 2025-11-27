@@ -31,26 +31,22 @@ class SNNLateralIntentHead(nn.Module):
         in_features: int,
         num_classes: int = 5,
         hidden_dims: Optional[List[int]] = None,
-        neuron_cfg: Optional[Dict] = None,
+        snn_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
-        time_steps: int = 4,
-        use_stdp: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
-        self.time_steps = time_steps
-        self.use_stdp = use_stdp
 
         if hidden_dims is None:
             hidden_dims = [64]  # 默认单层隐藏层
 
-        if neuron_cfg is None:
-            neuron_cfg = get_default_neuron_config()
-
-        # 更新神经元配置中的时间步
+        # 从snn_cfg中提取配置
+        neuron_cfg = snn_cfg["neuron_cfg"]
+        self.time_steps = snn_cfg["time_steps"]
+        self.use_stdp = snn_cfg["use_stdp"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = time_steps
+        self.neuron_cfg["time_steps"] = self.time_steps
 
         # SNN分类器
         self.classifier = SNNClassifier(
@@ -59,11 +55,11 @@ class SNNLateralIntentHead(nn.Module):
             hidden_dims=hidden_dims,
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
-            use_stdp=use_stdp,
+            use_stdp=self.use_stdp,
         )
 
         # 时间维度扩展器（用于输入特征）
-        self.time_expander = TimeDimExpander(time_steps=time_steps)
+        self.time_expander = TimeDimExpander(time_steps=self.time_steps)
 
         # 特征归一化
         self.feature_norm = nn.LayerNorm(in_features)
@@ -165,26 +161,22 @@ class SNNLongitudinalIntentHead(nn.Module):
         in_features: int,
         num_classes: int = 4,
         hidden_dims: Optional[List[int]] = None,
-        neuron_cfg: Optional[Dict] = None,
+        snn_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
-        time_steps: int = 4,
-        use_stdp: bool = False,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
-        self.time_steps = time_steps
-        self.use_stdp = use_stdp
 
         if hidden_dims is None:
             hidden_dims = [64]  # 默认单层隐藏层
 
-        if neuron_cfg is None:
-            neuron_cfg = get_default_neuron_config()
-
-        # 更新神经元配置中的时间步
+        # 从snn_cfg中提取配置
+        neuron_cfg = snn_cfg["neuron_cfg"]
+        self.time_steps = snn_cfg["time_steps"]
+        self.use_stdp = snn_cfg["use_stdp"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = time_steps
+        self.neuron_cfg["time_steps"] = self.time_steps
 
         # SNN分类器
         self.classifier = SNNClassifier(
@@ -193,11 +185,11 @@ class SNNLongitudinalIntentHead(nn.Module):
             hidden_dims=hidden_dims,
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
-            use_stdp=use_stdp,
+            use_stdp=self.use_stdp,
         )
 
         # 时间维度扩展器
-        self.time_expander = TimeDimExpander(time_steps=time_steps)
+        self.time_expander = TimeDimExpander(time_steps=self.time_steps)
 
         # 特征归一化
         self.feature_norm = nn.LayerNorm(in_features)
@@ -302,33 +294,31 @@ class SNNIntentHeads(nn.Module):
         longitudinal_classes: int = 4,
         lateral_hidden_dims: Optional[List[int]] = None,
         longitudinal_hidden_dims: Optional[List[int]] = None,
-        neuron_cfg: Optional[Dict] = None,
+        snn_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
-        time_steps: int = 4,
-        use_stdp: bool = False,
-        stdp_config: Optional[Dict] = None,
     ):
         super().__init__()
         self.in_features = in_features
         self.lateral_classes = lateral_classes
         self.longitudinal_classes = longitudinal_classes
-        self.use_stdp = use_stdp
-        self.time_steps = time_steps
 
         if lateral_hidden_dims is None:
             lateral_hidden_dims = [64]
         if longitudinal_hidden_dims is None:
             longitudinal_hidden_dims = [64]
 
+        # 从snn_cfg中提取配置
+        self.use_stdp = snn_cfg["use_stdp"]
+        self.time_steps = snn_cfg["time_steps"]
+        self.stdp_cfg = snn_cfg["stdp_cfg"]
+
         # STDP配置
-        if stdp_config is None:
-            stdp_config = {}
         self.stdp_config = {
-            'learning_rate': stdp_config.get('learning_rate', 0.001),
-            'A_pre': stdp_config.get('A_pre', 0.01),
-            'A_post': stdp_config.get('A_post', -0.01),
-            'tau_pre': stdp_config.get('tau_pre', 10.0),
-            'tau_post': stdp_config.get('tau_post', 10.0),
+            'learning_rate': self.stdp_cfg.get('learning_rate', 0.001),
+            'A_pre': self.stdp_cfg.get('A_pre', 0.01),
+            'A_post': self.stdp_cfg.get('A_post', -0.01),
+            'tau_pre': self.stdp_cfg.get('tau_pre', 10.0),
+            'tau_post': self.stdp_cfg.get('tau_post', 10.0),
         }
 
         # 横向意图头
@@ -336,10 +326,8 @@ class SNNIntentHeads(nn.Module):
             in_features=in_features,
             num_classes=lateral_classes,
             hidden_dims=lateral_hidden_dims,
-            neuron_cfg=neuron_cfg,
+            snn_cfg=snn_cfg,
             dropout=dropout,
-            time_steps=time_steps,
-            use_stdp=use_stdp,
         )
 
         # 纵向意图头
@@ -347,14 +335,12 @@ class SNNIntentHeads(nn.Module):
             in_features=in_features,
             num_classes=longitudinal_classes,
             hidden_dims=longitudinal_hidden_dims,
-            neuron_cfg=neuron_cfg,
+            snn_cfg=snn_cfg,
             dropout=dropout,
-            time_steps=time_steps,
-            use_stdp=use_stdp,
         )
 
         # 如果使用STDP，初始化STDP更新器
-        if use_stdp:
+        if self.use_stdp:
             from .snn_stdp import RewardModulatedSTDPUpdater
 
             # 为两个头各创建一个STDP更新器
@@ -562,27 +548,24 @@ class SNNIntentionMLPDecoder(nn.Module):
         dim: int,
         depth: int = 2,
         hidden_dim: Optional[int] = None,
-        neuron_cfg: Optional[Dict] = None,
+        snn_cfg: Optional[Dict] = None,
         dropout: float = 0.0,
-        time_steps: int = 4,
     ):
         super().__init__()
         self.dim = dim
         self.depth = depth
-        self.time_steps = time_steps
 
         if hidden_dim is None:
             hidden_dim = dim
 
-        if neuron_cfg is None:
-            neuron_cfg = get_default_neuron_config()
-
-        # 更新神经元配置中的时间步
+        # 从snn_cfg中提取配置
+        neuron_cfg = snn_cfg["neuron_cfg"]
+        self.time_steps = snn_cfg["time_steps"]
         self.neuron_cfg = neuron_cfg.copy()
-        self.neuron_cfg["time_steps"] = time_steps
+        self.neuron_cfg["time_steps"] = self.time_steps
 
         # 时间维度扩展器
-        self.time_expander = TimeDimExpander(time_steps=time_steps)
+        self.time_expander = TimeDimExpander(time_steps=self.time_steps)
 
         # MLP层
         self.mlp_layers = nn.ModuleList()

@@ -178,7 +178,7 @@ class LIFNeuron(nn.Module):
 
 
 def get_default_neuron_config():
-    """获取默认神经元配置"""
+    """获取默认神经元配置（已废弃，改用get_default_snn_config）"""
     return {
         "spike_mode": "lif",
         "tau": 2.0,
@@ -187,6 +187,37 @@ def get_default_neuron_config():
         "detach_reset": True,
         "backend": "torch",
         "time_steps": 4,
+    }
+
+
+def get_default_snn_config():
+    """获取默认SNN配置（统一配置对象）
+
+    Returns:
+        dict: 包含以下键的SNN配置字典：
+            - neuron_cfg: 神经元配置
+            - time_steps: 时间步数
+            - use_stdp: 是否使用STDP学习
+            - stdp_cfg: STDP参数配置
+    """
+    return {
+        "neuron_cfg": {
+            "spike_mode": "lif",
+            "tau": 2.0,
+            "v_threshold": 1.0,
+            "v_reset": 0.0,
+            "detach_reset": True,
+            "backend": "torch",
+        },
+        "time_steps": 8,
+        "use_stdp": False,
+        "stdp_cfg": {
+            "learning_rate": 0.001,
+            "A_pre": 0.01,
+            "A_post": -0.01,
+            "tau_pre": 10.0,
+            "tau_post": 10.0,
+        }
     }
 
 
