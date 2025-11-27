@@ -1,0 +1,83 @@
+# 评估配置示例 - 支持模型参数覆盖
+# 复制此文件到 config/local/eval_*.yaml 并修改为你的实际配置
+
+# 配置名称和版本
+name: "eval_model_override"
+version: "1.0"
+
+# GPU设置
+gpu:
+  devices: "0" # CUDA_VISIBLE_DEVICES
+
+# 数据路径配置
+paths:
+  nuplan_data_root: "/data1/planning/nuplan/data/cache"
+  nuplan_maps_root: "/data1/planning/nuplan/maps"
+  nuplan_exp_root: "/data1/planning/intent_reflect/work_dirs"
+
+# Worker配置
+worker:
+  threads_per_node: 40
+
+# 评估配置
+eval:
+  planner: "planTF"
+  scenario_builder: "nuplan_challenge"  # nuplan / nuplan_challenge
+  scenario_filter: "test14-random"      # test14-random / test14-hard / closed_loop_nonreactive_agents / closed_loop_reactive_agents / open_loop_boxes
+  checkpoint:
+    path: "/data1/planning/intention_reflect/last.ckpt"
+
+# =====================================================
+# 模型参数覆盖 - 覆盖 config/model/planTF.yaml 中的参数
+# =====================================================
+model:
+  # 基础模型参数
+  dim: 128
+  state_channel: 8          # 覆盖默认值 6
+  polygon_channel: 6
+  history_channel: 9
+  history_steps: 21
+  future_steps: 80
+  encoder_depth: 4
+  drop_path: 0.2
+  num_heads: 8
+  num_modes: 6
+  state_dropout: 0.75
+  use_ego_history: false
+  state_attn_encoder: true
+
+  # 嵌套参数覆盖示例（取消注释以使用）
+  # feature_builder:
+  #   radius: 150
+  #   history_horizon: 3
+  #   sample_interval: 0.05
+  #
+  # snn_cfg:
+  #   neuron_cfg:
+  #     tau: 2.5
+  #     v_threshold: 1.5
+  #   time_steps: 16
+  #   use_stdp: false
+  #   stdp_cfg:
+  #     learning_rate: 0.002
+
+# 使用说明：
+# 1. 将此文件复制到 config/local/ 目录：
+#    cp config/local.example/eval_model_override.yaml config/local/eval_my_experiment.yaml
+#
+# 2. 编辑 config/local/eval_my_experiment.yaml，修改需要覆盖的参数
+#
+# 3. 运行评估脚本（三个challenge之一）：
+#    ./eval.sh eval_my_experiment closed_loop_nonreactive_agents
+#    ./eval.sh eval_my_experiment closed_loop_reactive_agents
+#    ./eval.sh eval_my_experiment open_loop_boxes
+#
+# 说明：
+# - 只需要在 model: 部分添加你想覆盖的参数
+# - 未在 model: 中指定的参数将使用 config/model/planTF.yaml 中的默认值
+# - model: 部分会自动展平为 Hydra 参数，评估时会使用 + 前缀表示新增参数：
+#   +model.state_channel=8
+#   +model.dim=128
+#   +model.feature_builder.radius=150
+#   等等
+
