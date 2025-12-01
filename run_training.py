@@ -48,9 +48,7 @@ def main(cfg: DictConfig) -> Optional[TrainingEngine]:
 
     if cfg.py_func == "train":
         # Build training engine
-        with ProfilerContextManager(
-            cfg.output_dir, cfg.enable_profiling, "build_training_engine"
-        ):
+        with ProfilerContextManager(cfg.output_dir, cfg.enable_profiling, "build_training_engine"):
             engine = build_training_engine(cfg, worker)
 
         # Run training
@@ -64,9 +62,7 @@ def main(cfg: DictConfig) -> Optional[TrainingEngine]:
         return engine
     if cfg.py_func == "validate":
         # Build training engine
-        with ProfilerContextManager(
-            cfg.output_dir, cfg.enable_profiling, "build_training_engine"
-        ):
+        with ProfilerContextManager(cfg.output_dir, cfg.enable_profiling, "build_training_engine"):
             engine = build_training_engine(cfg, worker)
 
         # Run training
@@ -80,9 +76,7 @@ def main(cfg: DictConfig) -> Optional[TrainingEngine]:
         return engine
     elif cfg.py_func == "test":
         # Build training engine
-        with ProfilerContextManager(
-            cfg.output_dir, cfg.enable_profiling, "build_training_engine"
-        ):
+        with ProfilerContextManager(cfg.output_dir, cfg.enable_profiling, "build_training_engine"):
             engine = build_training_engine(cfg, worker)
 
         # Test model

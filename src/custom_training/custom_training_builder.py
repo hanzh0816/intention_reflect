@@ -115,9 +115,7 @@ def build_lightning_datamodule(
 
     # Create data augmentation
     augmentors = (
-        build_agent_augmentor(cfg.data_augmentation)
-        if "data_augmentation" in cfg
-        else None
+        build_agent_augmentor(cfg.data_augmentation) if "data_augmentation" in cfg else None
     )
 
     # Build dataset scenarios
@@ -149,6 +147,14 @@ def build_lightning_module(
     """
     # Create the complete Module
     if "custom_trainer" in cfg:
+        # 检查是否需要为 StdpOnlyTrainer 加载 checkpoint
+        # 必须在实例化 trainer 之前加载，因为 StdpOnlyTrainer 不通过 PyTorch Lightning 加载
+        if cfg.get("checkpoint"):
+            from src.models.planTF.stdp_only_trainer import load_checkpoint_for_stdp
+
+            logger.info(f"Loading checkpoint for StdpOnlyTrainer: {cfg.checkpoint}")
+            load_checkpoint_for_stdp(cfg.checkpoint, torch_module_wrapper)
+
         model = instantiate(
             cfg.custom_trainer,
             model=torch_module_wrapper,
@@ -167,9 +173,9 @@ def build_lightning_module(
             batch_size=cfg.data_loader.params.batch_size,
             optimizer=cfg.optimizer,
             lr_scheduler=cfg.lr_scheduler if "lr_scheduler" in cfg else None,
-            warm_up_lr_scheduler=cfg.warm_up_lr_scheduler
-            if "warm_up_lr_scheduler" in cfg
-            else None,
+            warm_up_lr_scheduler=(
+                cfg.warm_up_lr_scheduler if "warm_up_lr_scheduler" in cfg else None
+            ),
             objective_aggregate_mode=cfg.objective_aggregate_mode,
         )
 
