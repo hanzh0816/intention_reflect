@@ -78,7 +78,7 @@ class LightningTrainer(pl.LightningModule):
         self._log_step(losses["loss"], losses, metrics, prefix)
 
         # 处理STDP更新（如果启用）
-        if hasattr(self.model, 'intent_head') and self.model.intent_head.use_stdp:
+        if hasattr(self.model, "intent_head") and self.model.intent_head.use_stdp:
             stdp_metrics = self._stdp_update_step(res, features["feature"].data)
             if stdp_metrics:
                 self._log_stdp_metrics(stdp_metrics, prefix)
@@ -252,7 +252,9 @@ class LightningTrainer(pl.LightningModule):
                         float_value = float(value) if not isinstance(value, torch.Tensor) else value
                     except (ValueError, TypeError):
                         # 如果转换失败，跳过此指标
-                        logger.debug(f"Skipping STDP metric {head_name}/{metric_name}: cannot convert to float")
+                        logger.debug(
+                            f"Skipping STDP metric {head_name}/{metric_name}: cannot convert to float"
+                        )
                         continue
 
                     self.log(
@@ -375,23 +377,29 @@ class LightningTrainer(pl.LightningModule):
 
             # 1. 复制config.yaml到顶级目录（便捷访问）
             config_copy_path = os.path.join(work_dir, "config.yaml")
-            with open(config_copy_path, 'w') as f:
+            with open(config_copy_path, "w") as f:
                 OmegaConf.save(cfg, f)
 
             # 2. 生成易读摘要
             summary_path = os.path.join(work_dir, "config_summary.txt")
-            with open(summary_path, 'w') as f:
+            with open(summary_path, "w") as f:
                 f.write("=" * 80 + "\n")
                 f.write("TRAINING CONFIGURATION SUMMARY\n")
                 f.write("=" * 80 + "\n\n")
 
                 # 获取commit hash
                 try:
-                    commit_hash = subprocess.check_output(
-                        ['git', 'rev-parse', 'HEAD'],
-                        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
-                        stderr=subprocess.DEVNULL
-                    ).decode('utf-8').strip()
+                    commit_hash = (
+                        subprocess.check_output(
+                            ["git", "rev-parse", "HEAD"],
+                            cwd=os.path.dirname(
+                                os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                            ),
+                            stderr=subprocess.DEVNULL,
+                        )
+                        .decode("utf-8")
+                        .strip()
+                    )
                     f.write("COMMIT INFORMATION:\n")
                     f.write(f"  Commit Hash: {commit_hash}\n\n")
                 except (subprocess.CalledProcessError, FileNotFoundError):
@@ -401,9 +409,13 @@ class LightningTrainer(pl.LightningModule):
                 f.write(f"  Learning Rate: {cfg.get('lr', 'N/A')}\n")
                 f.write(f"  Epochs: {cfg.get('epochs', 'N/A')}\n")
                 f.write(f"  Warmup Epochs: {cfg.get('warmup_epochs', 'N/A')}\n")
-                f.write(f"  Batch Size: {cfg.get('data_loader', {}).get('params', {}).get('batch_size', 'N/A')}\n")
+                f.write(
+                    f"  Batch Size: {cfg.get('data_loader', {}).get('params', {}).get('batch_size', 'N/A')}\n"
+                )
                 f.write(f"  Weight Decay: {cfg.get('weight_decay', 'N/A')}\n")
-                f.write(f"  Num Workers: {cfg.get('data_loader', {}).get('params', {}).get('num_workers', 'N/A')}\n\n")
+                f.write(
+                    f"  Num Workers: {cfg.get('data_loader', {}).get('params', {}).get('num_workers', 'N/A')}\n\n"
+                )
 
                 f.write("WANDB CONFIGURATION:\n")
                 f.write(f"  Mode: {cfg.get('wandb', {}).get('mode', 'N/A')}\n")
@@ -419,7 +431,6 @@ class LightningTrainer(pl.LightningModule):
 
         except Exception as e:
             logger.debug(f"Failed to save config snapshot: {e}")
-
 
     def configure_optimizers(
         self,

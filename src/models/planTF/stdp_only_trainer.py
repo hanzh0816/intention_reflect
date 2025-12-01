@@ -6,12 +6,15 @@ from typing import Dict, Optional, Tuple
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from nuplan.planning.training.modeling.torch_module_wrapper import TorchModuleWrapper
 from nuplan.planning.training.modeling.types import (
     FeaturesType,
     ScenarioListType,
     TargetsType,
 )
+from torchmetrics import MetricCollection
+from src.metrics import MR, minADE, minFDE
 from omegaconf import OmegaConf
 
 from src.utils.intent_cls import classify_intent_from_cached_trajectory
@@ -55,6 +58,7 @@ class StdpOnlyTrainer(pl.LightningModule):
 
         self.model = model
         self.epochs = epochs
+        self.intent_loss_weight = 1.0
 
         # 检查模型是否有intent_head且启用了STDP
         if not hasattr(self.model, "intent_head"):
@@ -64,7 +68,24 @@ class StdpOnlyTrainer(pl.LightningModule):
             raise RuntimeError("intent_head未启用STDP模式。请在配置中设置use_stdp=True")
 
     def on_fit_start(self) -> None:
-        """训练开始时冻结所有参数"""
+        # Initialize metrics
+        metrics_collection = MetricCollection(
+            {
+                "minADE1": minADE(k=1).to(self.device),
+                "minADE6": minADE(k=6).to(self.device),
+                "minFDE1": minFDE(k=1).to(self.device),
+                "minFDE6": minFDE(k=6).to(self.device),
+                "MR": MR().to(self.device),
+            }
+        )
+        self.metrics = {
+            "train": metrics_collection.clone(prefix="train/"),
+            "val": metrics_collection.clone(prefix="val/"),
+        }
+
+        # 保存配置快照（仅在主进程执行）
+        if self.trainer.is_global_zero:
+            self._save_config_snapshot()
         self._freeze_all_parameters()
 
         # 打印冻结信息
@@ -101,22 +122,102 @@ class StdpOnlyTrainer(pl.LightningModule):
             prefix: 步骤前缀 ('train'/'val'/'test')
         """
         features, _, _ = batch
-
-        # 设置模型为训练模式（为了获取SNN脉冲信息）
-        self.model.train()
-
-        # 前向传播 - 获取脉冲和隐藏输出用于STDP更新
         res = self.forward(features["feature"].data)
 
-        # 执行STDP权重更新（直接修改weight.data）
-        stdp_metrics = self._stdp_update_step(res, features["feature"].data)
+        losses = self._compute_objectives(res, features["feature"].data)
+        metrics = self._compute_metrics(res, features["feature"].data, prefix)
+        self._log_step(losses["loss"], losses, metrics, prefix)
 
-        # 记录指标
-        if stdp_metrics:
-            self._log_stdp_metrics(stdp_metrics, prefix)
+        if prefix == "train":
+            # 设置模型为训练模式（为了获取SNN脉冲信息）
+            self.model.train()
+            stdp_metrics = self._stdp_update_step(res, features["feature"].data)
+            if stdp_metrics:
+                self._log_stdp_metrics(stdp_metrics, prefix)
 
-        # 重置SNN网络状态（重置膜电位）
         functional.reset_net(self.model)
+        return losses["loss"]
+
+    def _compute_objectives(self, res, data) -> Dict[str, torch.Tensor]:
+        trajectory, probability, prediction = (
+            res["trajectory"],
+            res["probability"],
+            res["prediction"],
+        )
+        targets = data["agent"]["target"]
+        valid_mask = data["agent"]["valid_mask"][:, :, -trajectory.shape[-2] :]
+
+        ego_target_pos, ego_target_heading = targets[:, 0, :, :2], targets[:, 0, :, 2]
+        ego_target = torch.cat(
+            [
+                ego_target_pos,
+                torch.stack([ego_target_heading.cos(), ego_target_heading.sin()], dim=-1),
+            ],
+            dim=-1,
+        )
+        agent_target, agent_mask = targets[:, 1:], valid_mask[:, 1:]
+
+        ade = torch.norm(trajectory[..., :2] - ego_target[:, None, :, :2], dim=-1)
+        best_mode = torch.argmin(ade.sum(-1), dim=-1)
+        best_traj = trajectory[torch.arange(trajectory.shape[0]), best_mode]
+        ego_reg_loss = F.smooth_l1_loss(best_traj, ego_target)
+        ego_cls_loss = F.cross_entropy(probability, best_mode.detach())
+
+        agent_reg_loss = F.smooth_l1_loss(prediction[agent_mask], agent_target[agent_mask][:, :2])
+
+        lateral_logits = res["intent"]["lateral"]  # [B, C_lat]
+        longitudinal_logits = res["intent"]["longitudinal"]  # [B, C_long]
+
+        # Intent classification loss: CE(A_pred, A_gt)
+        # Build ground-truth intent labels from expert (ego) target trajectory
+        # targets: [B, A, T, 3] with (x, y, heading)
+        bs = targets.shape[0]
+        ego_expert_traj = targets[:, 0]  # [B, T, 3]
+
+        # Try to read time horizon and dt from model config; fall back to sensible defaults
+        time_horizon = getattr(getattr(self.model, "model", self.model), "intent_time_horizon", 2.0)
+        try:
+            sample_interval = self.model.feature_builders[0].sample_interval  # type: ignore[attr-defined]
+        except Exception:
+            sample_interval = 0.1
+
+        lateral_list = []
+        longitudinal_list = []
+        for i in range(bs):
+            lat_idx, lon_idx = classify_intent_from_cached_trajectory(
+                trajectory_data=ego_expert_traj[i],
+                time_horizon=time_horizon,
+                sample_interval=sample_interval,
+            )
+            lateral_list.append(lat_idx)
+            longitudinal_list.append(lon_idx)
+
+        lateral_target = torch.as_tensor(
+            lateral_list, dtype=torch.long, device=lateral_logits.device
+        )
+        longitudinal_target = torch.as_tensor(
+            longitudinal_list, dtype=torch.long, device=longitudinal_logits.device
+        )
+
+        lateral_intent_loss = F.cross_entropy(lateral_logits, lateral_target)
+        longitudinal_intent_loss = F.cross_entropy(longitudinal_logits, longitudinal_target)
+        intent_cls_loss = lateral_intent_loss + longitudinal_intent_loss
+
+        loss = (
+            ego_reg_loss + ego_cls_loss + agent_reg_loss + self.intent_loss_weight * intent_cls_loss
+        )
+
+        return {
+            "loss": loss,
+            "reg_loss": ego_reg_loss,
+            "cls_loss": ego_cls_loss,
+            "prediction_loss": agent_reg_loss,
+            "intent_cls_loss": intent_cls_loss,
+        }
+
+    def _compute_metrics(self, output, data, prefix) -> Dict[str, torch.Tensor]:
+        metrics = self.metrics[prefix](output, data["agent"]["target"][:, 0])
+        return metrics
 
     def _stdp_update_step(self, res, data) -> Dict:
         """
@@ -228,145 +329,76 @@ class StdpOnlyTrainer(pl.LightningModule):
 
     def validation_step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], batch_idx: int
-    ) -> None:
+    ) -> torch.Tensor:
         """
-        验证步骤 - 仅评估，不更新权重
+        Step called for each batch example during validation.
 
-        使用torch.no_grad()确保不修改权重
+        :param batch: example batch
+        :param batch_idx: batch's index (unused)
+        :return: model's loss tensor
         """
-        features, _, _ = batch
-
-        # 进入eval模式，确保不修改权重
-        self.model.eval()
-
-        with torch.no_grad():
-            res = self.forward(features["feature"].data)
-
-            # 获取logits用于计算准确率
-            lateral_logits = res["intent"]["lateral"]
-            longitudinal_logits = res["intent"]["longitudinal"]
-
-            # 获取targets中的intent标签（仅用于计算准确率）
-            targets = features["feature"].data["agent"]["target"]
-            bs = targets.shape[0]
-            ego_expert_traj = targets[:, 0]
-
-            time_horizon = getattr(
-                getattr(self.model, "model", self.model), "intent_time_horizon", 2.0
-            )
-            try:
-                sample_interval = self.model.feature_builders[0].sample_interval
-            except Exception:
-                sample_interval = 0.1
-
-            # 分类intent标签
-            lateral_list = []
-            longitudinal_list = []
-            for i in range(bs):
-                lat_idx, lon_idx = classify_intent_from_cached_trajectory(
-                    trajectory_data=ego_expert_traj[i],
-                    time_horizon=time_horizon,
-                    sample_interval=sample_interval,
-                )
-                lateral_list.append(lat_idx)
-                longitudinal_list.append(lon_idx)
-
-            lateral_labels = torch.as_tensor(
-                lateral_list, dtype=torch.long, device=lateral_logits.device
-            )
-            longitudinal_labels = torch.as_tensor(
-                longitudinal_list, dtype=torch.long, device=longitudinal_logits.device
-            )
-
-            # 计算准确率
-            lateral_pred = torch.argmax(lateral_logits, dim=-1)
-            longitudinal_pred = torch.argmax(longitudinal_logits, dim=-1)
-
-            lateral_acc = (lateral_pred == lateral_labels).float().mean()
-            longitudinal_acc = (longitudinal_pred == longitudinal_labels).float().mean()
-
-            self.log("val/lateral_acc", lateral_acc, on_step=False, on_epoch=True, sync_dist=True)
-            self.log(
-                "val/longitudinal_acc",
-                longitudinal_acc,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=True,
-            )
-
-        # 重置SNN网络状态
-        functional.reset_net(self.model)
+        return self._step(batch, "val")
 
     def test_step(
         self, batch: Tuple[FeaturesType, TargetsType, ScenarioListType], batch_idx: int
+    ) -> torch.Tensor:
+        """
+        Step called for each batch example during testing.
+
+        :param batch: example batch
+        :param batch_idx: batch's index (unused)
+        :return: model's loss tensor
+        """
+        return self._step(batch, "test")
+
+    def _log_step(
+        self,
+        loss: torch.Tensor,
+        objectives: Dict[str, torch.Tensor],
+        metrics: Dict[str, torch.Tensor],
+        prefix: str,
+        loss_name: str = "loss",
     ) -> None:
-        """
-        测试步骤 - 仅评估，不更新权重
+        self.log(
+            f"loss/{prefix}_{loss_name}",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            sync_dist=True,
+        )
 
-        使用torch.no_grad()确保不修改权重
-        """
-        features, _, _ = batch
-
-        # 进入eval模式，确保不修改权重
-        self.model.eval()
-
-        with torch.no_grad():
-            res = self.forward(features["feature"].data)
-
-            # 获取logits用于计算准确率
-            lateral_logits = res["intent"]["lateral"]
-            longitudinal_logits = res["intent"]["longitudinal"]
-
-            # 获取targets中的intent标签（仅用于计算准确率）
-            targets = features["feature"].data["agent"]["target"]
-            bs = targets.shape[0]
-            ego_expert_traj = targets[:, 0]
-
-            time_horizon = getattr(
-                getattr(self.model, "model", self.model), "intent_time_horizon", 2.0
-            )
-            try:
-                sample_interval = self.model.feature_builders[0].sample_interval
-            except Exception:
-                sample_interval = 0.1
-
-            # 分类intent标签
-            lateral_list = []
-            longitudinal_list = []
-            for i in range(bs):
-                lat_idx, lon_idx = classify_intent_from_cached_trajectory(
-                    trajectory_data=ego_expert_traj[i],
-                    time_horizon=time_horizon,
-                    sample_interval=sample_interval,
-                )
-                lateral_list.append(lat_idx)
-                longitudinal_list.append(lon_idx)
-
-            lateral_labels = torch.as_tensor(
-                lateral_list, dtype=torch.long, device=lateral_logits.device
-            )
-            longitudinal_labels = torch.as_tensor(
-                longitudinal_list, dtype=torch.long, device=longitudinal_logits.device
-            )
-
-            # 计算准确率
-            lateral_pred = torch.argmax(lateral_logits, dim=-1)
-            longitudinal_pred = torch.argmax(longitudinal_logits, dim=-1)
-
-            lateral_acc = (lateral_pred == lateral_labels).float().mean()
-            longitudinal_acc = (longitudinal_pred == longitudinal_labels).float().mean()
-
-            self.log("test/lateral_acc", lateral_acc, on_step=False, on_epoch=True, sync_dist=True)
+        for key, value in objectives.items():
             self.log(
-                "test/longitudinal_acc",
-                longitudinal_acc,
+                f"objectives/{prefix}_{key}",
+                value,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,
             )
 
-        # 重置SNN网络状态
-        functional.reset_net(self.model)
+        if metrics is not None:
+            # Log original metrics dict (may contain keys like "val/minFDE1")
+            self.log_dict(
+                metrics,
+                prog_bar=(prefix == "val"),
+                on_step=False,
+                on_epoch=True,
+                batch_size=1,
+                sync_dist=True,
+            )
+            # Additionally log flat aliases for checkpoint filename formatting
+            # e.g., "val_minFDE1", "val_minADE1"
+            if prefix == "val":
+                alias_keys = ["val/minFDE1", "val/minADE1"]
+                for k in alias_keys:
+                    if k in metrics:
+                        self.log(
+                            k.replace("/", "_"),
+                            metrics[k],
+                            on_step=False,
+                            on_epoch=True,
+                            sync_dist=True,
+                        )
 
     def forward(self, features: FeaturesType) -> TargetsType:
         """前向传播"""
