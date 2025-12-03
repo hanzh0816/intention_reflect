@@ -149,11 +149,11 @@ def build_lightning_module(
     if "custom_trainer" in cfg:
         # 检查是否需要为 StdpOnlyTrainer 加载 checkpoint
         # 必须在实例化 trainer 之前加载，因为 StdpOnlyTrainer 不通过 PyTorch Lightning 加载
-        if cfg.get("checkpoint"):
+        if cfg.get("model_dict"):
             from src.models.planTF.stdp_only_trainer import load_checkpoint_for_stdp
 
-            logger.info(f"Loading checkpoint for StdpOnlyTrainer: {cfg.checkpoint}")
-            load_checkpoint_for_stdp(cfg.checkpoint, torch_module_wrapper)
+            logger.info(f"Loading checkpoint for StdpOnlyTrainer: {cfg.model_dict}")
+            load_checkpoint_for_stdp(cfg.model_dict, torch_module_wrapper)
 
         model = instantiate(
             cfg.custom_trainer,

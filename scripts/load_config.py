@@ -109,10 +109,10 @@ def get_config_params(config: Dict[str, Any]) -> List[str]:
     params.append(f"warmup_epochs={training.get('warmup_epochs', 3)}")
     params.append(f"weight_decay={training.get('weight_decay', '0.0001')}")
 
-    # 添加Checkpoint参数（如果指定）
-    checkpoint = config.get("checkpoint")
-    if checkpoint:
-        params.append(f"checkpoint={checkpoint}")
+    # 添加model_dict参数（如果指定）
+    model_dict = config.get("model_dict")
+    if model_dict:
+        params.append(f"+model_dict={model_dict}")
 
     # 添加custom_trainer参数
     custom_trainer = config.get("custom_trainer", {})
