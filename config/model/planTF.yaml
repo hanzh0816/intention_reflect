@@ -26,6 +26,7 @@ feature_builder:
 
 # Unified SNN configuration
 snn_cfg:
+  population_size: 10  # Number of neurons per intent class (population coding)
   neuron_cfg:
     spike_mode: lif
     tau: 2.0

@@ -43,6 +43,7 @@ class SNNLateralIntentHead(nn.Module):
         neuron_cfg = snn_cfg["neuron_cfg"]
         self.time_steps = snn_cfg["time_steps"]
         self.use_stdp = snn_cfg["use_stdp"]
+        self.population_size = snn_cfg.get("population_size", 1)  # 提取群体大小
         self.neuron_cfg = neuron_cfg.copy()
 
         # SNN分类器
@@ -53,6 +54,7 @@ class SNNLateralIntentHead(nn.Module):
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
             use_stdp=self.use_stdp,
+            population_size=self.population_size,  # 传递群体大小参数
         )
 
         # 时间维度扩展器（用于输入特征）
@@ -170,6 +172,7 @@ class SNNLongitudinalIntentHead(nn.Module):
         neuron_cfg = snn_cfg["neuron_cfg"]
         self.time_steps = snn_cfg["time_steps"]
         self.use_stdp = snn_cfg["use_stdp"]
+        self.population_size = snn_cfg.get("population_size", 1)  # 提取群体大小
         self.neuron_cfg = neuron_cfg.copy()
 
         # SNN分类器
@@ -180,6 +183,7 @@ class SNNLongitudinalIntentHead(nn.Module):
             neuron_cfg=self.neuron_cfg,
             dropout=dropout,
             use_stdp=self.use_stdp,
+            population_size=self.population_size,  # 传递群体大小参数
         )
 
         # 时间维度扩展器
@@ -376,12 +380,15 @@ class SNNIntentHeads(nn.Module):
 
         return lateral_logits, longitudinal_logits
 
-    def get_predictions(self, intention_feature: torch.Tensor):
+    def get_predictions(self, intention_feature: torch.Tensor, use_spike_count: bool = True):
         """
         获取预测结果和置信度
 
         Args:
             intention_feature: [B, in_features] 意图特征
+            use_spike_count: 是否使用脉冲计数进行决策（仅在群体编码时有效）
+                           True: 使用脉冲计数决策（推理模式）
+                           False: 使用softmax概率决策（训练模式）
 
         Returns:
             lateral_predictions: [B] 横向意图预测
@@ -389,14 +396,38 @@ class SNNIntentHeads(nn.Module):
             lateral_confidence: [B] 横向置信度
             longitudinal_confidence: [B] 纵向置信度
         """
-        lateral_logits, longitudinal_logits = self.get_logits(intention_feature)
+        # 获取前向传播结果
+        lateral_result, longitudinal_result = self.forward(intention_feature)
 
-        # 计算概率和预测
-        lateral_probs = torch.softmax(lateral_logits, dim=-1)
-        longitudinal_probs = torch.softmax(longitudinal_logits, dim=-1)
+        # 提取logits和spike_counts（如果有）
+        if isinstance(lateral_result, dict):
+            lateral_logits = lateral_result["logits"]
+            lateral_spike_counts = lateral_result.get("spike_counts", None)
+        else:
+            # 向后兼容：简单张量
+            lateral_logits = lateral_result
+            lateral_spike_counts = None
 
-        lateral_confidence, lateral_predictions = torch.max(lateral_probs, dim=-1)
-        longitudinal_confidence, longitudinal_predictions = torch.max(longitudinal_probs, dim=-1)
+        if isinstance(longitudinal_result, dict):
+            longitudinal_logits = longitudinal_result["logits"]
+            longitudinal_spike_counts = longitudinal_result.get("spike_counts", None)
+        else:
+            # 向后兼容：简单张量
+            longitudinal_logits = longitudinal_result
+            longitudinal_spike_counts = None
+
+        # 决策逻辑：优先使用脉冲计数（如果可用且请求）
+        if use_spike_count and lateral_spike_counts is not None:
+            # 脉冲计数决策（推理模式）
+            lateral_confidence, lateral_predictions = torch.max(lateral_spike_counts, dim=-1)
+            longitudinal_confidence, longitudinal_predictions = torch.max(longitudinal_spike_counts, dim=-1)
+        else:
+            # Softmax决策（训练模式或N=1）
+            lateral_probs = torch.softmax(lateral_logits, dim=-1)
+            longitudinal_probs = torch.softmax(longitudinal_logits, dim=-1)
+
+            lateral_confidence, lateral_predictions = torch.max(lateral_probs, dim=-1)
+            longitudinal_confidence, longitudinal_predictions = torch.max(longitudinal_probs, dim=-1)
 
         return (
             lateral_predictions,
@@ -707,11 +738,13 @@ class SNNClassifier(nn.Module):
         neuron_cfg: Dict,
         dropout: float = 0.0,
         use_stdp: bool = False,
+        population_size: int = 1,
     ):
         super().__init__()
         self.in_features = in_features
         self.num_classes = num_classes
         self.use_stdp = use_stdp
+        self.population_size = population_size
 
         # 构建隐藏层
         layers = []
@@ -721,11 +754,13 @@ class SNNClassifier(nn.Module):
             layers.append(SNNLinearBlock(prev_dim, hidden_dim, neuron_cfg, dropout=dropout))
             prev_dim = hidden_dim
 
-        # 输出层
-        self.output_linear = nn.Linear(prev_dim, num_classes, bias=True)
+        # 输出层：扩展到 num_classes * population_size 个神经元
+        self.output_neurons = num_classes * population_size
+        self.output_linear = nn.Linear(prev_dim, self.output_neurons, bias=True)
 
-        # 如果使用STDP，在输出层后添加LIF神经元以获得post-synaptic spikes
-        if use_stdp:
+        # 如果使用STDP或群体编码（population_size > 1），添加LIF神经元
+        # 群体编码需要实际脉冲来进行脉冲计数决策
+        if use_stdp or population_size > 1:
             self.output_lif = LIFNeuron(**neuron_cfg)
         else:
             self.output_lif = None
@@ -737,12 +772,16 @@ class SNNClassifier(nn.Module):
         Args:
             x: [T, B, C_in] 时间步×批次×特征
         Returns:
-            BP模式: [B, num_classes] 分类logits
-            STDP模式: {
-                'logits': [B, num_classes] 时间平均logits,
-                'spike_trains': [T, B, num_classes] 输出层spike序列,
-                'hidden_output': [T, B, hidden_dim] 隐藏层输出
-            }
+            如果 population_size=1 且 use_stdp=False:
+                [B, num_classes] 分类logits（向后兼容）
+
+            否则（群体编码或STDP模式）:
+                {
+                    'logits': [B, num_classes] 群体平均logits用于损失计算,
+                    'spike_trains': [T, B, num_classes, N] 输出层spike序列用于STDP和决策,
+                    'spike_counts': [B, num_classes] 脉冲计数用于决策,
+                    'hidden_output': [T, B, hidden_dim] 隐藏层输出用于STDP
+                }
         """
         # 通过隐藏层
         for layer in self.hidden_layers:
@@ -753,22 +792,34 @@ class SNNClassifier(nn.Module):
 
         # 最终线性层
         x_flat = x.reshape(T * B, C)
-        x = self.output_linear(x_flat)  # [T*B, num_classes]
-        x = x.reshape(T, B, self.num_classes)
+        x = self.output_linear(x_flat)  # [T*B, output_neurons]
+        x = x.reshape(T, B, self.output_neurons)
 
-        # BP模式：直接返回时间平均的logits
-        if not self.use_stdp:
+        # 向后兼容：简单的BP模式（population_size=1且不使用STDP）
+        if self.population_size == 1 and not self.use_stdp:
             return x.mean(dim=0)  # [B, num_classes]
 
-        # STDP模式：返回完整的spike序列和logits
-        # 通过LIF神经元获得output layer spikes
-        spike_trains = self.output_lif(x)  # [T, B, num_classes]
-        logits = x.mean(dim=0)  # [B, num_classes] 时间平均用于分类
+        # 群体编码模式：重塑输出以分离类别和群体维度
+        # [T, B, num_classes*N] -> [T, B, num_classes, N]
+        x = x.reshape(T, B, self.num_classes, self.population_size)
+
+        # 通过输出LIF层生成脉冲
+        x_flat = x.reshape(T, B, self.output_neurons)
+        spike_trains_flat = self.output_lif(x_flat)  # [T, B, num_classes*N]
+        spike_trains = spike_trains_flat.reshape(T, B, self.num_classes, self.population_size)
+
+        # 群体平均logits用于损失计算
+        # 先对群体维度求平均，再对时间维度求平均
+        logits = x.mean(dim=3).mean(dim=0)  # [B, num_classes]
+
+        # 脉冲计数用于决策：对时间和群体维度求和
+        spike_counts = spike_trains.sum(dim=(0, 3))  # [B, num_classes]
 
         return {
-            "logits": logits,
-            "spike_trains": spike_trains,
-            "hidden_output": hidden_output,
+            "logits": logits,              # [B, num_classes] - 用于交叉熵损失
+            "spike_trains": spike_trains,  # [T, B, num_classes, N] - 用于STDP
+            "spike_counts": spike_counts,  # [B, num_classes] - 用于脉冲计数决策
+            "hidden_output": hidden_output,# [T, B, hidden_dim] - 用于STDP
         }
 
 
