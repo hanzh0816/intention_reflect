@@ -1,7 +1,8 @@
 """评估指标工具"""
 
 import sys
-sys.path.append('/home/hzh/code/planning/planTF')
+
+sys.path.append("/home/hzh/code/planning/planTF")
 
 import torch
 import numpy as np
@@ -47,21 +48,20 @@ def plot_confusion_matrix(cm: np.ndarray, save_path: str = None):
         save_path: 保存路径
     """
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=range(10), yticklabels=range(10))
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
-    plt.title('Confusion Matrix')
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=range(10), yticklabels=range(10))
+    plt.ylabel("True Label")
+    plt.xlabel("Predicted Label")
+    plt.title("Confusion Matrix")
 
     if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Confusion matrix saved to {save_path}")
     else:
         plt.show()
     plt.close()
 
 
-def evaluate_model(model, test_loader, device='cuda', is_snn=False):
+def evaluate_model(model, test_loader, device="cuda", is_snn=False):
     """完整模型评估
 
     Args:
@@ -85,7 +85,7 @@ def evaluate_model(model, test_loader, device='cuda', is_snn=False):
 
             # 处理不同输出格式
             if isinstance(output, dict):
-                logits = output['logits']
+                logits = output["logits"]
             else:
                 logits = output
 
@@ -107,16 +107,13 @@ def evaluate_model(model, test_loader, device='cuda', is_snn=False):
 
     # 分类报告
     report = classification_report(
-        all_targets,
-        all_predictions,
-        target_names=[str(i) for i in range(10)],
-        digits=4
+        all_targets, all_predictions, target_names=[str(i) for i in range(10)], digits=4
     )
 
     return {
-        'accuracy': accuracy,
-        'confusion_matrix': cm,
-        'classification_report': report,
-        'predictions': all_predictions,
-        'targets': all_targets,
+        "accuracy": accuracy,
+        "confusion_matrix": cm,
+        "classification_report": report,
+        "predictions": all_predictions,
+        "targets": all_targets,
     }
