@@ -13,19 +13,15 @@ class SNNMLP(nn.Module):
     def __init__(
         self,
         input_size: int = 784,
-        hidden_dim1: int = 512,
-        hidden_dim2: int = 256,
+        hidden_dim: int = 512,
         num_classes: int = 10,
         snn_cfg: Optional[Dict] = None,
-        dropout: float = 0.2,
         use_stdp: bool = False,
-        population_size: int = 1,
     ):
         super().__init__()
         self.input_size = input_size
         self.num_classes = num_classes
         self.use_stdp = use_stdp
-        self.population_size = population_size
 
         if snn_cfg is None:
             snn_cfg = get_default_snn_config()
@@ -33,18 +29,13 @@ class SNNMLP(nn.Module):
         self.neuron_cfg = snn_cfg["neuron_cfg"].copy()
         self.time_steps = snn_cfg["time_steps"]
 
-        self.input_norm = nn.LayerNorm(input_size)
+        self.input_norm = nn.BatchNorm1d(input_size)
         self.time_expander = TimeDimExpander(time_steps=self.time_steps)
-        self.hidden1 = SNNLinearBlock(input_size, hidden_dim1, self.neuron_cfg, dropout)
-        self.hidden2 = SNNLinearBlock(hidden_dim1, hidden_dim2, self.neuron_cfg, dropout)
+        self.hidden = SNNLinearBlock(input_size, hidden_dim, self.neuron_cfg)
 
-        self.output_neurons = num_classes * population_size
-        self.output_linear = nn.Linear(hidden_dim2, self.output_neurons, bias=True)
+        self.output_linear = nn.Linear(hidden_dim, num_classes, bias=True)
 
-        if use_stdp or population_size > 1:
-            self.output_lif = LIFNeuron(**self.neuron_cfg)
-        else:
-            self.output_lif = None
+        self.output_lif = LIFNeuron(**self.neuron_cfg)
 
         self._init_weights()
 
@@ -65,30 +56,30 @@ class SNNMLP(nn.Module):
         B = x.size(0)
         x = self.input_norm(x)
         x = self.time_expander(x)
-        x = self.hidden1(x)
-        x = self.hidden2(x)
+        x = self.hidden(x)
 
         hidden_output = x
         T, B, C = x.shape
 
+        # 通过输出层的Linear
         x_flat = x.reshape(T * B, C)
         x = self.output_linear(x_flat)
-        x = x.reshape(T, B, self.output_neurons)
+        x = x.reshape(T, B, self.num_classes)
 
-        if self.population_size == 1 and not self.use_stdp:
-            return x.mean(dim=0)
+        # 通过LIF神经元，获取脉冲和膜电位
+        spike_trains, membrane_potential = self.output_lif(x, return_v=True)
+        logits = membrane_potential
 
-        x = x.reshape(T, B, self.num_classes, self.population_size)
-        x_flat = x.reshape(T, B, self.output_neurons)
-        spike_trains_flat = self.output_lif(x_flat)
-        spike_trains = spike_trains_flat.reshape(T, B, self.num_classes, self.population_size)
+        # 计算脉冲计数
+        spike_counts = spike_trains.sum(dim=0)
 
-        logits = x.mean(dim=3).mean(dim=0)
-        spike_counts = spike_trains.sum(dim=(0, 3))
+        if self.use_stdp is False:
+            return logits
 
         return {
             "logits": logits,
             "spike_trains": spike_trains,
             "spike_counts": spike_counts,
             "hidden_output": hidden_output,
+            "membrane_potential": membrane_potential,
         }

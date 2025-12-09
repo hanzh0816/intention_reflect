@@ -8,8 +8,8 @@ from torch.utils.data import DataLoader
 from typing import Dict
 from tqdm import tqdm
 import os
-from spikingjelly.clock_driven import functional
-from src.models.planTF.modules.snn_stdp import RewardModulatedSTDPUpdater
+from spikingjelly.activation_based import functional
+from src.models.planTF.modules.snn_stdp import SpikingJellySTDPWrapper
 
 
 class SNNSTDPTrainer:
@@ -34,10 +34,22 @@ class SNNSTDPTrainer:
         self.checkpoint_dir = checkpoint_dir
         self.log_interval = log_interval
 
+        # 冻结所有参数（STDP使用局部学习规则）
         for param in self.model.parameters():
             param.requires_grad = False
 
-        self.stdp_updater = RewardModulatedSTDPUpdater(**stdp_cfg)
+        # 创建SpikingJelly STDP wrapper
+        self.stdp_wrapper = SpikingJellySTDPWrapper(
+            layer=self.model.output_linear,
+            neuron=self.model.output_lif,
+            learning_rate=stdp_cfg.get('learning_rate', 0.001),
+            tau_pre=stdp_cfg.get('tau_pre', 10.0),
+            tau_post=stdp_cfg.get('tau_post', 10.0),
+        )
+
+        # 启用monitors (hidden layer的LIF神经元 -> output layer)
+        self.stdp_wrapper.enable_monitors(self.model.hidden.lif)
+
         self.criterion = nn.CrossEntropyLoss()
         self.history = {
             "train_loss": [],
@@ -59,6 +71,7 @@ class SNNSTDPTrainer:
         for batch_idx, (data, target) in enumerate(pbar):
             data, target = data.to(self.device), target.to(self.device)
 
+            # Forward pass
             with torch.no_grad():
                 output = self.model(data)
 
@@ -68,20 +81,18 @@ class SNNSTDPTrainer:
             logits = output["logits"]
             loss = self.criterion(logits, target)
 
-            weight_delta = self.stdp_updater.update_weight(
-                weight=self.model.output_linear.weight.data,
-                pre_spikes_sequence=output["hidden_output"],
-                post_spikes_sequence=output["spike_trains"],
+            # STDP weight update (使用SpikingJelly的trace更新公式)
+            weight_delta = self.stdp_wrapper.update_weight(
                 logits=logits,
                 labels=target,
+                pre_spikes_sequence=output["hidden_output"],
+                post_spikes_sequence=output["spike_trains"],
             )
+            self.stdp_wrapper.apply_update(weight_delta)
 
-            with torch.no_grad():
-                self.model.output_linear.weight.data = self.stdp_updater.apply_update(
-                    self.model.output_linear.weight.data, weight_delta
-                )
-
+            # Reset network and STDP
             functional.reset_net(self.model)
+            self.stdp_wrapper.reset()
 
             total_loss += loss.item()
             pred = logits.argmax(dim=1)

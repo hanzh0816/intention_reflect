@@ -10,12 +10,13 @@ from models.snn_mlp import SNNMLP
 from trainers.snn_stdp_trainer import SNNSTDPTrainer
 from data.mnist_dataset import MNISTDataModule
 from configs.snn_stdp_config import SNN_STDP_CONFIG
-from spikingjelly.clock_driven import functional
+from spikingjelly.activation_based import functional  # 更新为activation_based
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrain-checkpoint", type=str, default=None)
+    parser.add_argument("--epochs", type=int, default=None, help="Override epochs from config")
     args = parser.parse_args()
 
     torch.manual_seed(42)
@@ -33,19 +34,19 @@ def main():
         model.load_state_dict(checkpoint["model_state_dict"])
         print(f"Loaded pretrained: {args.pretrain_checkpoint}")
 
+    # Override epochs if specified
+    training_cfg = SNN_STDP_CONFIG["training"].copy()
+    if args.epochs is not None:
+        training_cfg["epochs"] = args.epochs
+        print(f"Running with {args.epochs} epochs (overriding config)")
+
     trainer = SNNSTDPTrainer(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        device=SNN_STDP_CONFIG["training"]["device"],
-        stdp_lr=SNN_STDP_CONFIG["training"]["stdp_lr"],
-        stdp_a_pre=SNN_STDP_CONFIG["training"]["stdp_a_pre"],
-        stdp_a_post=SNN_STDP_CONFIG["training"]["stdp_a_post"],
-        stdp_tau_pre=SNN_STDP_CONFIG["training"]["stdp_tau_pre"],
-        stdp_tau_post=SNN_STDP_CONFIG["training"]["stdp_tau_post"],
-        epochs=SNN_STDP_CONFIG["training"]["epochs"],
-        checkpoint_dir=SNN_STDP_CONFIG["logging"]["checkpoint_dir"],
-        log_interval=SNN_STDP_CONFIG["logging"]["log_interval"],
+        **training_cfg,
+        **SNN_STDP_CONFIG["logging"],
+        stdp_cfg=SNN_STDP_CONFIG["model"]["snn_cfg"]["stdp_cfg"],
     )
 
     history = trainer.train()

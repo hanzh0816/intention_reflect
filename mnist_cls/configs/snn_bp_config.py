@@ -6,12 +6,9 @@ from src.models.planTF.modules.snn_utlis import get_default_snn_config
 SNN_BP_CONFIG = {
     "model": {
         "input_size": 784,
-        "hidden_dim1": 512,
-        "hidden_dim2": 256,
+        "hidden_dim": 256,
         "num_classes": 10,
-        "dropout": 0.2,
         "use_stdp": False,
-        "population_size": 1,
         "snn_cfg": {**get_default_snn_config(), "time_steps": 8, "use_stdp": False},
     },
     "training": {

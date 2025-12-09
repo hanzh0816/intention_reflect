@@ -23,12 +23,8 @@ def main():
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
-        device=ANN_CONFIG["training"]["device"],
-        lr=ANN_CONFIG["training"]["lr"],
-        weight_decay=ANN_CONFIG["training"]["weight_decay"],
-        epochs=ANN_CONFIG["training"]["epochs"],
-        checkpoint_dir=ANN_CONFIG["logging"]["checkpoint_dir"],
-        log_interval=ANN_CONFIG["logging"]["log_interval"],
+        **ANN_CONFIG["training"],
+        **ANN_CONFIG["logging"],
     )
 
     history = trainer.train()
