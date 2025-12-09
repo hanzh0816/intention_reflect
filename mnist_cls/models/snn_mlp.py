@@ -1,4 +1,5 @@
 import sys
+from tkinter import X
 
 sys.path.append("/home/hzh/code/planning/planTF")
 
@@ -7,6 +8,8 @@ import torch.nn as nn
 from typing import Dict, Optional
 from src.models.planTF.modules.snn_layers import SNNLinearBlock, TimeDimExpander
 from src.models.planTF.modules.snn_utlis import LIFNeuron, get_default_snn_config
+
+from spikingjelly.activation_based import neuron, layer
 
 
 class SNNMLP(nn.Module):
@@ -29,57 +32,30 @@ class SNNMLP(nn.Module):
         self.neuron_cfg = snn_cfg["neuron_cfg"].copy()
         self.time_steps = snn_cfg["time_steps"]
 
-        self.input_norm = nn.BatchNorm1d(input_size)
         self.time_expander = TimeDimExpander(time_steps=self.time_steps)
-        self.hidden = SNNLinearBlock(input_size, hidden_dim, self.neuron_cfg)
+        # self.hidden_linear = layer.Linear(input_size, hidden_dim, bias=False)
+        # self.hidden_lif = neuron.IFNode()
 
-        self.output_linear = nn.Linear(hidden_dim, num_classes, bias=True)
+        self.output_linear = layer.Linear(input_size, num_classes, bias=False)
+        self.output_lif = neuron.IFNode()
 
-        self.output_lif = LIFNeuron(**self.neuron_cfg)
-
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.LayerNorm):
-                nn.init.constant_(m.bias, 0)
-                nn.init.constant_(m.weight, 1.0)
+        nn.init.constant_(self.hidden_linear.weight.data, 0.4)
+        nn.init.constant_(self.output_linear.weight.data, 0.4)
 
     def forward(self, x: torch.Tensor):
-        if x.dim() == 4:
-            x = x.view(x.size(0), -1)
+        x = x.view(x.size(0), -1)
 
-        B = x.size(0)
-        x = self.input_norm(x)
         x = self.time_expander(x)
-        x = self.hidden(x)
+        # T, B, L = x.shape
+        # x = self.hidden_linear(x)
+        # x = self.hidden_lif(x)
 
-        hidden_output = x
-        T, B, C = x.shape
+        x = self.output_linear(x)
+        # logits = x.mean(0)
+        x = self.output_lif(x)
+        logits = x.mean(0)
 
-        # 通过输出层的Linear
-        x_flat = x.reshape(T * B, C)
-        x = self.output_linear(x_flat)
-        x = x.reshape(T, B, self.num_classes)
-
-        # 通过LIF神经元，获取脉冲和膜电位
-        spike_trains, membrane_potential = self.output_lif(x, return_v=True)
-        logits = membrane_potential
-
-        # 计算脉冲计数
-        spike_counts = spike_trains.sum(dim=0)
-
-        if self.use_stdp is False:
-            return logits
-
-        return {
-            "logits": logits,
-            "spike_trains": spike_trains,
-            "spike_counts": spike_counts,
-            "hidden_output": hidden_output,
-            "membrane_potential": membrane_potential,
-        }
+        return {"logits": logits, "spike_train": x}

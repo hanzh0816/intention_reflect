@@ -9,11 +9,11 @@ SNN_BP_CONFIG = {
         "hidden_dim": 256,
         "num_classes": 10,
         "use_stdp": False,
-        "snn_cfg": {**get_default_snn_config(), "time_steps": 8, "use_stdp": False},
+        "snn_cfg": {**get_default_snn_config(), "time_steps": 256, "use_stdp": False},
     },
     "training": {
         "batch_size": 128,
-        "epochs": 50,
+        "epochs": 100,
         "lr": 1e-3,
         "weight_decay": 1e-4,
         "device": "cuda",

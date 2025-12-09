@@ -34,6 +34,6 @@ SNN_STDP_CONFIG = {
     },
     "logging": {
         "checkpoint_dir": "./checkpoints/snn_stdp",
-        "log_interval": 100,
+        "log_interval": 10,
     },
 }

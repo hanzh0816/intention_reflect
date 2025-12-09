@@ -1,3 +1,5 @@
+from math import tau
+import re
 import sys
 
 sys.path.append("/home/hzh/code/planning/planTF")
@@ -8,8 +10,12 @@ from torch.utils.data import DataLoader
 from typing import Dict
 from tqdm import tqdm
 import os
-from spikingjelly.activation_based import functional
-from src.models.planTF.modules.snn_stdp import SpikingJellySTDPWrapper
+from spikingjelly.activation_based import functional, learning, layer, neuron
+from src.models.planTF.modules.snn_stdp import RSTDPLearner, SpikingJellySTDPWrapper
+
+
+def f_weight(x):
+    return torch.clamp(x, -1, 1.0)
 
 
 class SNNSTDPTrainer:
@@ -34,22 +40,6 @@ class SNNSTDPTrainer:
         self.checkpoint_dir = checkpoint_dir
         self.log_interval = log_interval
 
-        # 冻结所有参数（STDP使用局部学习规则）
-        for param in self.model.parameters():
-            param.requires_grad = False
-
-        # 创建SpikingJelly STDP wrapper
-        self.stdp_wrapper = SpikingJellySTDPWrapper(
-            layer=self.model.output_linear,
-            neuron=self.model.output_lif,
-            learning_rate=stdp_cfg.get('learning_rate', 0.001),
-            tau_pre=stdp_cfg.get('tau_pre', 10.0),
-            tau_post=stdp_cfg.get('tau_post', 10.0),
-        )
-
-        # 启用monitors (hidden layer的LIF神经元 -> output layer)
-        self.stdp_wrapper.enable_monitors(self.model.hidden.lif)
-
         self.criterion = nn.CrossEntropyLoss()
         self.history = {
             "train_loss": [],
@@ -60,8 +50,23 @@ class SNNSTDPTrainer:
         }
         self.best_val_acc = 0.0
 
+        functional.set_step_mode(self.model, "m")
+        self.stdp_learner = RSTDPLearner(
+            step_mode="m",
+            synapse=self.model.output_linear,
+            sn=self.model.output_lif,
+            tau_post=20.0,
+            tau_pre=20.0,
+            f_pre=f_weight,
+            f_post=f_weight,
+        )
+
+        params_stdp = self.model.output_linear.parameters()
+        self.optimizer_stdp = torch.optim.SGD(params_stdp, lr=1e-5, momentum=0.0)
+
     def train_epoch(self, epoch: int) -> Dict[str, float]:
         self.model.train()
+        self.stdp_learner.enable()
         total_loss = 0.0
         correct = 0
         total = 0
@@ -71,34 +76,28 @@ class SNNSTDPTrainer:
         for batch_idx, (data, target) in enumerate(pbar):
             data, target = data.to(self.device), target.to(self.device)
 
-            # Forward pass
-            with torch.no_grad():
-                output = self.model(data)
+            self.optimizer_stdp.zero_grad()
 
-            if not isinstance(output, dict):
-                raise RuntimeError("Model must return dict in STDP mode")
-
+            output = self.model(data)
             logits = output["logits"]
-            loss = self.criterion(logits, target)
 
-            # STDP weight update (使用SpikingJelly的trace更新公式)
-            weight_delta = self.stdp_wrapper.update_weight(
-                logits=logits,
-                labels=target,
-                pre_spikes_sequence=output["hidden_output"],
-                post_spikes_sequence=output["spike_trains"],
+            loss = self.criterion(logits, target)
+            reward_neuron = logits.argmax(dim=1)
+            reward = [1.0 if reward_neuron[i] == target[i] else -1.0 for i in range(target.size(0))]
+            delta_w = self.stdp_learner.step(
+                on_grad=True, reward=reward, neuron_index=reward_neuron
             )
-            self.stdp_wrapper.apply_update(weight_delta)
+            self.optimizer_stdp.step()
 
             # Reset network and STDP
             functional.reset_net(self.model)
-            self.stdp_wrapper.reset()
+            self.stdp_learner.reset()
 
             total_loss += loss.item()
             pred = logits.argmax(dim=1)
             correct += pred.eq(target).sum().item()
             total += target.size(0)
-            total_weight_change += weight_delta.abs().mean().item()
+            total_weight_change += delta_w.abs().mean().item()
 
             if batch_idx % self.log_interval == 0:
                 pbar.set_postfix(
@@ -118,6 +117,7 @@ class SNNSTDPTrainer:
         total = 0
 
         with torch.no_grad():
+            self.stdp_learner.disable()
             pbar = tqdm(self.val_loader, desc=f"Epoch {epoch}/{self.epochs} [Val]")
             for data, target in pbar:
                 data, target = data.to(self.device), target.to(self.device)

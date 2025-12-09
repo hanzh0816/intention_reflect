@@ -5,32 +5,10 @@ SNN基础工具类和组件，支持意图解码器的SNN实现
 import torch
 import torch.nn as nn
 from typing import Dict, Optional, Union
+from spikingjelly.activation_based import neuron, layer
+from spikingjelly.activation_based import functional
 
-try:
-    # 优先尝试clock_driven模块（MultiStep支持）
-    from spikingjelly.clock_driven.neuron import (
-        MultiStepLIFNode,
-        MultiStepParametricLIFNode,
-        MultiStepIFNode,
-    )
-    from spikingjelly.clock_driven import functional
-
-    SPIKING_JELLY_AVAILABLE = True
-    SPIKING_MODE = "clock_driven"
-    print("Using SpikingJelly clock_driven module with MultiStep neurons")
-except ImportError:
-    try:
-        # 备用activation_based模块
-        from spikingjelly.activation_based import neuron, layer
-        from spikingjelly.activation_based import functional
-
-        SPIKING_JELLY_AVAILABLE = True
-        SPIKING_MODE = "activation_based"
-        print("Using SpikingJelly activation_based module")
-    except ImportError:
-        SPIKING_JELLY_AVAILABLE = False
-        SPIKING_MODE = "mock"
-        print("Warning: SpikingJelly not available. Using mock SNN implementation.")
+print("Using SpikingJelly activation_based module")
 
 
 class MockLIFNode(nn.Module):
@@ -71,98 +49,39 @@ class LIFNeuron(nn.Module):
         super().__init__()
         self.spike_mode = spike_mode
 
-        if SPIKING_JELLY_AVAILABLE:
-            # 使用SpikingJelly的神经元
-            if SPIKING_MODE == "clock_driven":
-                # clock_driven模块 - 使用MultiStep神经元
-                if spike_mode == "lif":
-                    self.lif_neuron = MultiStepLIFNode(
-                        tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "plif":
-                    self.lif_neuron = MultiStepParametricLIFNode(
-                        init_tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "if":
-                    self.lif_neuron = MultiStepIFNode(
-                        v_threshold=v_threshold,
-                        v_reset=v_reset,
-                        detach_reset=detach_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "ilif":
-                    self.lif_neuron = MultiStepLIFNode(
-                        tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                else:
-                    raise ValueError(f"Unsupported spike mode: {spike_mode}")
-
-            elif SPIKING_MODE == "activation_based":
-                # activation_based模块 - 使用简化命名
-                if spike_mode == "lif":
-                    self.lif_neuron = neuron.LIFNode(
-                        tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "plif":
-                    self.lif_neuron = neuron.ParametricLIFNode(
-                        init_tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "if":
-                    self.lif_neuron = neuron.IFNode(
-                        v_threshold=v_threshold,
-                        v_reset=v_reset,
-                        detach_reset=detach_reset,
-                        backend=backend,
-                    )
-                elif spike_mode == "ilif":
-                    self.lif_neuron = neuron.LIFNode(
-                        tau=tau,
-                        v_threshold=v_threshold,
-                        detach_reset=detach_reset,
-                        v_reset=v_reset,
-                        backend=backend,
-                    )
-                else:
-                    raise ValueError(f"Unsupported spike mode: {spike_mode}")
-
-            else:
-                # Mock模式
-                self.lif_neuron = MockLIFNode(
-                    tau=tau,
-                    v_threshold=v_threshold,
-                    v_reset=v_reset,
-                    detach_reset=detach_reset,
-                    backend=backend,
-                )
-        else:
-            # 使用mock实现
-            self.lif_neuron = MockLIFNode(
+        if spike_mode == "lif":
+            self.lif_neuron = neuron.LIFNode(
                 tau=tau,
+                v_threshold=v_threshold,
+                detach_reset=detach_reset,
+                v_reset=v_reset,
+                step_mode="m",  # multi-step模式
+            )
+        elif spike_mode == "plif":
+            self.lif_neuron = neuron.ParametricLIFNode(
+                init_tau=tau,
+                v_threshold=v_threshold,
+                detach_reset=detach_reset,
+                v_reset=v_reset,
+                step_mode="m",  # multi-step模式
+            )
+        elif spike_mode == "if":
+            self.lif_neuron = neuron.IFNode(
                 v_threshold=v_threshold,
                 v_reset=v_reset,
                 detach_reset=detach_reset,
-                backend=backend,
+                step_mode="m",  # multi-step模式
             )
+        elif spike_mode == "ilif":
+            self.lif_neuron = neuron.LIFNode(
+                tau=tau,
+                v_threshold=v_threshold,
+                detach_reset=detach_reset,
+                v_reset=v_reset,
+                step_mode="m",  # multi-step模式
+            )
+        else:
+            raise ValueError(f"Unsupported spike mode: {spike_mode}")
 
     def forward(self, x: torch.Tensor, return_v: bool = False):
         """
@@ -176,7 +95,7 @@ class LIFNeuron(nn.Module):
         spikes = self.lif_neuron(x)
         if return_v:
             # 获取膜电位
-            if hasattr(self.lif_neuron, 'v'):
+            if hasattr(self.lif_neuron, "v"):
                 # SpikingJelly神经元有v属性
                 v = self.lif_neuron.v
             else:
