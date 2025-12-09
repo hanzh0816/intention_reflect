@@ -164,14 +164,26 @@ class LIFNeuron(nn.Module):
                 backend=backend,
             )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, return_v: bool = False):
         """
         Args:
             x: [T, B, ...] 时间步×批次×其他维度
+            return_v: 是否返回膜电位
         Returns:
-            [T, B, ...] 脉冲输出
+            如果return_v=False: [T, B, ...] 脉冲输出
+            如果return_v=True: (spikes, membrane_potential) 元组
         """
-        return self.lif_neuron(x)
+        spikes = self.lif_neuron(x)
+        if return_v:
+            # 获取膜电位
+            if hasattr(self.lif_neuron, 'v'):
+                # SpikingJelly神经元有v属性
+                v = self.lif_neuron.v
+            else:
+                # Mock实现，使用输入作为膜电位近似
+                v = x
+            return spikes, v
+        return spikes
 
 
 def get_default_snn_config():
