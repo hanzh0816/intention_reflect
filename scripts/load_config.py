@@ -25,29 +25,34 @@ def build_hydra_params(config: Dict[str, Any], mode: str) -> List[str]:
     cfg = load_base_hydra_config(mode)
     params = []
     excluded_keys = {"name", "version", "gpu", "paths"}
+    # Track which keys are selected as config groups
+    config_groups = set()
 
     for key, value in config.items():
         if key in excluded_keys:
             continue
 
         if isinstance(value, str):
-            params.append(_build_param(cfg, key, value))
+            params.append(_build_param(cfg, key, value, config_groups))
             _try_update_cfg(cfg, key, value)
 
         elif isinstance(value, dict):
             if "_select" in value:
                 group_name = value["_select"]
-                params.append(_build_param(cfg, key, group_name))
+                # Config group selection should not use + prefix
+                params.append(_build_param(cfg, key, group_name, config_groups, is_config_group=True))
                 _try_update_cfg(cfg, key, group_name)
+                # Track this key as a config group
+                config_groups.add(key)
 
             filtered = {k: v for k, v in value.items() if k != "_select"}
             if filtered:
                 for nested_key, nested_val in flatten_dict({key: filtered}).items():
-                    params.append(_build_param(cfg, nested_key, nested_val))
+                    params.append(_build_param(cfg, nested_key, nested_val, config_groups))
                     _try_update_cfg(cfg, nested_key, nested_val)
 
         else:
-            params.append(_build_param(cfg, key, format_value(value)))
+            params.append(_build_param(cfg, key, format_value(value), config_groups))
             _try_update_cfg(cfg, key, value)
 
     if mode == "train":
@@ -61,9 +66,29 @@ def build_hydra_params(config: Dict[str, Any], mode: str) -> List[str]:
     return params
 
 
-def _build_param(cfg, key: str, value: str) -> str:
-    """构建单个参数"""
-    prefix = "" if config_key_exists(cfg, key) else "+"
+def _build_param(cfg, key: str, value: str, config_groups: set, is_config_group: bool = False) -> str:
+    """构建单个参数
+
+    Args:
+        cfg: Hydra配置对象
+        key: 配置键
+        value: 配置值
+        config_groups: 已选择的配置组集合
+        is_config_group: 是否为配置组选择（使用_select）
+    """
+    # Config group selections never use + prefix
+    if is_config_group:
+        prefix = ""
+    else:
+        # Check if this key is nested under a config group
+        # e.g., "planner.imitation_planner.planner_ckpt" is under "planner" config group
+        parent_key = key.split('.')[0]
+        if parent_key in config_groups:
+            # Parent is a config group, so nested keys should exist in that group
+            prefix = ""
+        else:
+            prefix = "" if config_key_exists(cfg, key) else "+"
+
     # Quote value if it contains special characters that Hydra might misinterpret
     if any(char in str(value) for char in ['=', ',', '[', ']', '{', '}', ' ']):
         # Escape single quotes in the value and wrap in single quotes
