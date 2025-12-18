@@ -1,12 +1,11 @@
 hydra:
   run:
     dir: ${output_dir}
-  output_subdir: ${output_dir}/code/hydra                       # Store hydra's config breakdown here for debugging
-  searchpath:                                                   # Only <exp_dir> in these paths are discoverable
+  output_subdir: ${output_dir}/code/hydra # Store hydra's config breakdown here for debugging
+  searchpath: # Only <exp_dir> in these paths are discoverable
     - pkg://nuplan.planning.script.config.common
     - pkg://nuplan.planning.script.config.simulation
-    - pkg://nuplan.planning.script.experiments                  # Put experiments configs in script/experiments/<exp_dir>
-    - config/simulation
+    - pkg://nuplan.planning.script.experiments # Put experiments configs in script/experiments/<exp_dir>
     - config/scenario_filter
 
 defaults:
@@ -34,19 +33,18 @@ defaults:
   - metric_aggregator:
       - default_weighted_average
 
-  - override hydra/job_logging: none                            # Disable hydra's logging
-  - override hydra/hydra_logging: none                          # Disable hydra's logging
+  - override hydra/job_logging: none # Disable hydra's logging
+  - override hydra/hydra_logging: none # Disable hydra's logging
 
-experiment_name: 'simulation'
-aggregated_metric_folder_name: 'aggregator_metric'         # Aggregated metric folder name
+experiment_name: "simulation"
+aggregated_metric_folder_name: "aggregator_metric" # Aggregated metric folder name
 aggregator_save_path: ${output_dir}/${aggregated_metric_folder_name}
-
 
 # Progress Visualization
 enable_simulation_progress_bar: true # Show for every simulation its progress
 
 # Simulation Setup
-simulation_history_buffer_duration: 2.0  # [s] The look back duration to initialize the simulation history buffer with
+simulation_history_buffer_duration: 2.0 # [s] The look back duration to initialize the simulation history buffer with
 
 # Number (or fractional, e.g., 0.25) of GPUs available for single simulation (per scenario and planner).
 # This number can also be < 1 because we allow multiple models to be loaded into a single GPU.
@@ -82,4 +80,4 @@ disable_callback_parallelization: true
 #  - LOG_FILE_BASED: Works in a single stage, breaking up the scenarios based on what log file they are in and
 #                    distributing the number of log files evenly across all workers
 #  - SINGLE_NODE: Does no distribution, processes all scenarios in config
-distributed_mode: 'SINGLE_NODE'
+distributed_mode: "SINGLE_NODE"
