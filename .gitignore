@@ -164,3 +164,4 @@ checkpoints/
 work_dirs/
 nuplan-devkit/
 config/local/
+tmp/

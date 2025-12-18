@@ -64,6 +64,11 @@ def build_hydra_params(config: Dict[str, Any], mode: str) -> List[str]:
 def _build_param(cfg, key: str, value: str) -> str:
     """构建单个参数"""
     prefix = "" if config_key_exists(cfg, key) else "+"
+    # Quote value if it contains special characters that Hydra might misinterpret
+    if any(char in str(value) for char in ['=', ',', '[', ']', '{', '}', ' ']):
+        # Escape single quotes in the value and wrap in single quotes
+        value = str(value).replace("'", "\\'")
+        return f"{prefix}{key}='{value}'"
     return f"{prefix}{key}={value}"
 
 
