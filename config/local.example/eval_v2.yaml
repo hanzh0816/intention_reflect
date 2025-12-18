@@ -1,0 +1,40 @@
+# 评估配置示例 v2.0
+# 用于评估训练好的模型
+# 配置文件结构已与 Hydra 配置结构对齐
+
+# ===== 元数据 =====
+name: "eval_default"
+version: "2.0"
+
+# ===== GPU 设置 =====
+gpu:
+  devices: "0"
+
+# ===== 数据路径配置 =====
+paths:
+  nuplan_data_root: "/data1/planning/nuplan/data/cache"
+  nuplan_maps_root: "/data1/planning/nuplan/maps"
+  nuplan_exp_root: "/data1/planning/intent_reflect/work_dirs"
+
+# ===== 配置组选择 =====
+# planner: "planTF"  # 选择规划器 → +planner=planTF
+# 注意：如果需要配置 planner 参数，不能同时使用字符串选择和嵌套配置
+scenario_builder: "nuplan_challenge"  # 评估使用 challenge → scenario_builder=nuplan_challenge
+scenario_filter: "test14-random"  # 评估场景 → scenario_filter=test14-random
+verbose: true  # 详细输出 → verbose=true
+
+# ===== Worker 参数 =====
+worker:
+  threads_per_node: 40  # → worker.threads_per_node=40
+
+# ===== Planner 参数（检查点和模型配置）=====
+# 这是嵌套配置，会生成 planner.xxx=value 或 +planner.xxx=value
+planner:
+  imitation_planner:
+    planner_ckpt: "/path/to/checkpoint.ckpt"  # → +planner.imitation_planner.planner_ckpt=...
+
+# ===== 模型参数覆盖（可选）=====
+# 如果需要在评估时覆盖模型参数
+# model:
+#   state_channel: 8  # → +model.state_channel=8 (评估时通常需要 +)
+#   dim: 128
