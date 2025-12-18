@@ -1,0 +1,34 @@
+# 缓存生成配置示例 v2.0
+# 用于生成训练缓存数据
+# 配置文件结构已与 Hydra 配置结构对齐
+
+# ===== 元数据 =====
+name: "cache_1M"
+version: "2.0"
+
+# ===== GPU 设置 =====
+gpu:
+  devices: "0"
+
+# ===== 数据路径配置 =====
+paths:
+  nuplan_data_root: "/data2/hzh/nuplan/dataset"
+  nuplan_maps_root: "/data2/hzh/nuplan/dataset/maps"
+  nuplan_exp_root: "/home/hzh/code/planning/planTF/work_dirs"
+  nuplan_db_files: "/data2/hzh/nuplan/dataset/nuplan-v1.1/splits/mini"
+
+# ===== 配置组选择 =====
+py_func: "cache"  # 指定为缓存模式 → py_func=cache
+training: "train_planTF"  # 选择训练配置组 → +training=train_planTF
+scenario_builder: "nuplan"  # → scenario_builder=nuplan
+scenario_filter: "training_scenarios_1M"  # → scenario_filter=training_scenarios_1M
+
+# ===== Cache 配置 =====
+cache:
+  cache_path: "/data2/hzh/nuplan/exp/cache_plantf_1M"  # → cache.cache_path=...
+  cleanup_cache: true  # 生成前清理旧缓存 → cache.cleanup_cache=true
+
+# ===== Worker 参数 =====
+# 缓存生成使用线程池
+worker:
+  threads_per_node: 40  # → worker.threads_per_node=40

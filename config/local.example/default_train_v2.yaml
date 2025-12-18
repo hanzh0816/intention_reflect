@@ -1,0 +1,57 @@
+# ===== 元数据 =====
+name: "plantf-origin"
+version: "2.0"
+
+# ===== GPU 设置 =====
+gpu:
+  devices: "6,7" # CUDA_VISIBLE_DEVICES
+
+# ===== 数据路径配置 =====
+paths:
+  nuplan_data_root: "/data2/hzh/nuplan/dataset"
+  nuplan_maps_root: "/data2/hzh/nuplan/dataset/maps"
+  nuplan_exp_root: "/home/hzh/code/planning/planTF/work_dirs"
+  nuplan_db_files: "/data2/hzh/nuplan/dataset/nuplan-v1.1/splits/mini" # 用于测试
+
+# ===== 配置组选择 =====
+# 这些是顶层字符串配置，会生成 key=value 或 +key=value
+training: "train_planTF" # 选择训练配置组 → +training=train_planTF
+scenario_builder: "nuplan" # 场景构建器 → scenario_builder=nuplan
+scenario_filter: "training_scenarios_1M" # 场景过滤器 → scenario_filter=training_scenarios_1M
+
+# ===== Worker 配置 =====
+worker:
+  _select: "single_machine_thread_pool" # 选择配置组 → worker=single_machine_thread_pool
+  max_workers: 64 # 覆盖参数 → +worker.max_workers=64
+
+# ===== Cache 配置 =====
+cache:
+  cache_path: "/data2/hzh/nuplan/train_cache" # → cache.cache_path=...
+  use_cache_without_dataset: true # → cache.use_cache_without_dataset=true
+  cleanup_cache: false # → cache.cleanup_cache=false
+
+# ===== 训练参数 =====
+# 这些参数直接映射到 Hydra 配置的顶层
+lr: 2e-3
+epochs: 25
+warmup_epochs: 3
+weight_decay: 1e-4
+
+# 数据加载器参数（嵌套结构）
+data_loader:
+  params:
+    batch_size: 128
+    num_workers: 64
+
+# Lightning 参数
+lightning:
+  trainer:
+    params:
+      val_check_interval: 0.5 # → lightning.trainer.params.val_check_interval=0.5
+
+# Wandb配置
+wandb:
+  mode: "online" # online / offline / disabled
+  project: "nuplan"
+  name: "plantf-origin"
+  entity: null # 可选：wandb用户或团队名称
