@@ -36,6 +36,15 @@ def build_hydra_params(config: Dict[str, Any], mode: str) -> List[str]:
             params.append(_build_param(cfg, key, value, config_groups))
             _try_update_cfg(cfg, key, value)
 
+        elif isinstance(value, list):
+            # Handle list of config group items (e.g., callback: [failure_case_collector])
+            # These get appended to existing defaults
+            for item in value:
+                if isinstance(item, str):
+                    # Append to config group: +key=item
+                    params.append(f"+{key}={item}")
+                    config_groups.add(key)
+
         elif isinstance(value, dict):
             if "_select" in value:
                 group_name = value["_select"]
