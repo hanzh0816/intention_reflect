@@ -241,6 +241,8 @@ class FailureCaseExporter:
             map_names=None,
             num_scenarios_per_type=None,
             limit_total_scenarios=None,
+            timestamp_threshold_s=None,  # No timestamp filtering
+            ego_displacement_minimum_m=None,  # No displacement filtering
             expand_scenarios=False,
             remove_invalid_goals=True,
             shuffle=False,
