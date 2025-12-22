@@ -18,7 +18,7 @@ from nuplan.planning.simulation.observation.observation_type import DetectionsTr
 from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.maps.abstract_map import AbstractMap
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
-from nuplan.planning.utils.multithreading.worker_pool import WorkerPool
+from nuplan.planning.utils.multithreading.worker_sequential import Sequential
 
 from src.evaluation.database_manager import DatabaseManager
 from src.evaluation.history_serializer import HistorySerializer
@@ -194,7 +194,7 @@ class FailureCaseExporter:
         self._scenario_builder = scenario_builder
         self._db_manager = DatabaseManager(self._database_path)
         self._serializer = HistorySerializer()
-        self._worker_pool = WorkerPool(num_workers=1) if scenario_builder else None
+        self._worker = Sequential() if scenario_builder else None
 
         # Initialize database connection
         if not self._database_path.exists():
@@ -249,7 +249,7 @@ class FailureCaseExporter:
         try:
             scenarios = self._scenario_builder.get_scenarios(
                 scenario_filter=scenario_filter,
-                worker=self._worker_pool
+                worker=self._worker
             )
 
             if not scenarios:
