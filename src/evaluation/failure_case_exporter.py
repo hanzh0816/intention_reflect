@@ -369,9 +369,11 @@ class FailureCaseExporter:
         stub_planner = StubPlanner(name=failure_case['planner_name'])
 
         # Step 6: Construct output path following nuBoard structure
-        # Structure: <output_base>/<planner>/<scenario_type>/<log_name>/<scenario_name>/<scenario_name>.pkl.xz
+        # Structure: <output_base>/simulation/<planner>/<scenario_type>/<log_name>/<scenario_name>/<scenario_name>.pkl.xz
+        # The "simulation" subfolder separates simulation logs from .nuboard metadata files
         output_dir = (
             self._output_base
+            / "simulation"  # Add simulation subfolder
             / failure_case['planner_name']
             / failure_case['scenario_type']
             / failure_case['log_name']
@@ -412,12 +414,12 @@ class FailureCaseExporter:
         nuboard_filename = self._output_base / f"nuboard_{int(time.time())}{NuBoardFile.extension()}"
 
         # Create NuBoardFile object
-        # simulation_folder should be "." because planner folders are directly under output_base
-        # Directory structure: <output_base>/<planner>/<scenario_type>/<log>/<scenario>.pkl.xz
-        # For failure cases, we don't have metrics, so create empty metric folders
+        # simulation_folder is "simulation" to match the subdirectory structure
+        # Directory structure: <output_base>/simulation/<planner>/<scenario_type>/<log>/<scenario>.pkl.xz
+        # This separates .nuboard files from simulation logs and prevents directory iteration errors
         nuboard_file = NuBoardFile(
             simulation_main_path=str(self._output_base),
-            simulation_folder=".",  # Planner folders are at the root
+            simulation_folder="simulation",  # Simulation logs are in "simulation" subfolder
             metric_main_path=str(self._output_base),
             metric_folder="metrics",  # Empty folder (no metrics for failure cases)
             aggregator_metric_folder="aggregator_metric",  # Empty folder

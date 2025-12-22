@@ -2,14 +2,23 @@
 
 ## 问题症状
 
-运行 `run_nuboard.py` 时出现错误：
+运行 `run_nuboard.py` 时出现以下任一错误：
+
+**错误 1：找不到 nuBoard 文件**
 ```
 INFO:nuplan.planning.nuboard.utils.utils:No available nuBoard files are found.
 ```
 
+**错误 2：目录遍历错误（已在 v1.2.1 修复）**
+```
+NotADirectoryError: [Errno 20] Not a directory: '.../failure_viz/nuboard_xxx.nuboard'
+```
+
 ## 问题原因
 
-nuBoard 需要一个 `.nuboard` 元数据文件来定位 SimulationLog 文件，但早期版本的 failure_case 导出工具没有自动创建这个文件。
+1. **错误 1**: nuBoard 需要一个 `.nuboard` 元数据文件来定位 SimulationLog 文件，早期版本的导出工具没有自动创建。
+
+2. **错误 2**: `.nuboard` 文件和 planner 目录在同一层级，导致 nuBoard 遍历时把文件当作目录处理。v1.2.1 通过使用 `simulation/` 子目录解决了这个问题。
 
 ## 解决方案
 
@@ -54,7 +63,7 @@ nuboard_filename = output_dir / f"nuboard_{int(time.time())}.nuboard"
 
 nuboard_file = NuBoardFile(
     simulation_main_path=str(output_dir),
-    simulation_folder=".",
+    simulation_folder="simulation",  # 重要：使用 "simulation" 子目录
     metric_main_path=str(output_dir),
     metric_folder="metrics",
     aggregator_metric_folder="aggregator_metric",
@@ -64,6 +73,10 @@ nuboard_file.save_nuboard_file(nuboard_filename)
 print(f"Created: {nuboard_filename}")
 ```
 
+**注意：** 如果你的导出目录结构是旧版本（planner 直接在根目录下），你需要：
+1. 重新使用最新版本导出，或
+2. 手动将 planner 目录移动到 `simulation/` 子目录下
+
 ## 目录结构说明
 
 正确的导出目录结构应该是：
@@ -71,14 +84,24 @@ print(f"Created: {nuboard_filename}")
 ```
 work_dirs/failure_viz/
 ├── nuboard_1703123456.nuboard    # 必需的元数据文件
-├── planTF/                        # planner 名称
-│   └── highway/                   # scenario_type
-│       └── 2021.07.16.xxx/        # log_name
-│           └── 00cca24d240f5980/  # scenario_name
-│               └── 00cca24d240f5980.pkl.xz  # SimulationLog
+├── simulation/                    # 仿真日志目录（v1.2.1+）
+│   └── planTF/                    # planner 名称
+│       └── highway/               # scenario_type
+│           └── 2021.07.16.xxx/    # log_name
+│               └── 00cca24d240f5980/  # scenario_name
+│                   └── 00cca24d240f5980.pkl.xz  # SimulationLog
 └── metrics/                       # 空目录（可选）
     └── aggregator_metric/         # 空目录（可选）
 ```
+
+**旧版本目录结构（v1.0-v1.2，已弃用）：**
+```
+work_dirs/failure_viz/
+├── nuboard_xxx.nuboard  ← 文件
+└── planTF/              ← 目录（会导致 NotADirectoryError）
+```
+
+如果你有旧版本的导出，建议重新使用最新版本导出。
 
 ## 验证
 
@@ -101,7 +124,8 @@ python run_nuboard.py \
 ## 版本信息
 
 - **v1.0-v1.1**: 不自动生成 `.nuboard` 文件（需要手动创建）
-- **v1.2+**: 自动生成 `.nuboard` 文件（推荐）
+- **v1.2**: 自动生成 `.nuboard` 文件，但目录结构可能导致遍历错误
+- **v1.2.1+**: 自动生成 `.nuboard` 文件 + 标准 `simulation/` 子目录结构（推荐）
 
 ## 更多信息
 

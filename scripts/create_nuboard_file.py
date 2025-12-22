@@ -57,11 +57,12 @@ def create_nuboard_file(output_dir: Path) -> Path:
     nuboard_filename = output_dir / f"nuboard_{int(time.time())}{NuBoardFile.extension()}"
 
     # Create NuBoardFile object
-    # simulation_folder should be "." because planner folders are directly under output_dir
-    # Directory structure: <output_dir>/<planner>/<scenario_type>/<log>/<scenario>.pkl.xz
+    # simulation_folder is "simulation" to match the standard nuBoard structure
+    # Directory structure: <output_dir>/simulation/<planner>/<scenario_type>/<log>/<scenario>.pkl.xz
+    # This separates .nuboard files from simulation logs
     nuboard_file = NuBoardFile(
         simulation_main_path=str(output_dir),
-        simulation_folder=".",  # Planner folders are at the root
+        simulation_folder="simulation",  # Simulation logs are in "simulation" subfolder
         metric_main_path=str(output_dir),
         metric_folder="metrics",  # Empty folder (no metrics for failure cases)
         aggregator_metric_folder="aggregator_metric",  # Empty folder

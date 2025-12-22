@@ -160,7 +160,9 @@ SQLite DB (failure_cases.db)
     ↓
 创建 SimulationLog(scenario, planner, history)
     ↓
-保存为 .pkl.xz 文件
+保存为 .pkl.xz 文件到 simulation/ 子目录
+    ↓
+创建 .nuboard 元数据文件
     ↓
 NuBoard 加载可视化
 ```
@@ -172,20 +174,23 @@ NuBoard 加载可视化
 ```
 work_dirs/failure_viz/
 ├── nuboard_1703123456.nuboard    # NuBoard 元数据文件（必需）
-├── planTF/                        # planner 名称
-│   ├── highway/                   # scenario_type
-│   │   └── 2021.07.16.20.45.29_veh-35_01095_01486/  # log_name
-│   │       └── 00cca24d240f5980/  # scenario_name
-│   │           └── 00cca24d240f5980.pkl.xz  # SimulationLog 文件
-│   └── urban/
-│       └── ...
-└── ...
+├── simulation/                    # 仿真日志目录
+│   └── planTF/                    # planner 名称
+│       ├── highway/               # scenario_type
+│       │   └── 2021.07.16.20.45.29_veh-35_01095_01486/  # log_name
+│       │       └── 00cca24d240f5980/  # scenario_name
+│       │           └── 00cca24d240f5980.pkl.xz  # SimulationLog 文件
+│       └── urban/
+│           └── ...
+└── metrics/                       # 空目录（无指标数据）
+    └── aggregator_metric/         # 空目录
 ```
 
 **重要说明：**
 - `.nuboard` 文件是 nuBoard 的元数据文件，包含指向模拟日志的路径信息
-- 导出工具会自动创建这个文件
-- nuBoard 通过读取 `.nuboard` 文件来定位 SimulationLog 文件
+- `simulation/` 子目录用于隔离仿真日志和元数据文件，避免目录遍历错误
+- 导出工具会自动创建这个标准结构
+- nuBoard 通过读取 `.nuboard` 文件来定位 `simulation/` 目录下的 SimulationLog 文件
 
 ---
 
@@ -226,7 +231,7 @@ from nuplan.planning.nuboard.base.data_class import NuBoardFile
 output_dir = Path("work_dirs/failure_viz")
 nuboard_file = NuBoardFile(
     simulation_main_path=str(output_dir),
-    simulation_folder=".",
+    simulation_folder="simulation",  # 注意：使用 "simulation" 子目录
     metric_main_path=str(output_dir),
     metric_folder="metrics",
     aggregator_metric_folder="aggregator_metric",
@@ -330,7 +335,12 @@ python run_nuboard.py \
 
 ## 更新日志
 
-### v1.2 (当前版本)
+### v1.2.1 (当前版本)
+- ✅ **修复目录遍历错误**：使用标准的 `simulation/` 子目录结构
+- ✅ 避免 `.nuboard` 文件和 planner 目录混在一起导致的 `NotADirectoryError`
+- ✅ 完全兼容 nuBoard 标准目录结构
+
+### v1.2
 - ✅ **修复 nuBoard 无法加载问题**：自动生成 `.nuboard` 元数据文件
 - ✅ 导出工具现在会自动创建 nuBoard 所需的元数据文件
 - ✅ 无需手动创建 `.nuboard` 文件
