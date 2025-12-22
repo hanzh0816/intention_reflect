@@ -98,6 +98,10 @@ Collision #1:
   Collision Energy: 45.23
   Ego Speed:       12.50 m/s
   Object Speed:    8.30 m/s
+  Traffic Lights:  3 light(s) detected
+    Light 1: 🔴 RED (Lane: 12345)
+    Light 2: 🟢 GREEN (Lane: 12346)
+    Light 3: 🟡 YELLOW (Lane: 12347)
 
 --------------------------------------------------------------------------------
 Speed Violations (1 total)
@@ -152,6 +156,13 @@ Violation #1:
 - **Collision Energy**: 碰撞能量（Delta-V）
 - **Ego Speed**: 自车速度（m/s）
 - **Object Speed**: 碰撞对象速度（m/s）
+- **Traffic Lights**: 碰撞时刻的红绿灯状态（需要 `--show-frames`）✨
+  - 显示附近所有红绿灯的状态
+  - 🔴 RED（红灯）
+  - 🟢 GREEN（绿灯）
+  - 🟡 YELLOW（黄灯）
+  - ⚪ UNKNOWN（未知状态）
+  - 每个红绿灯显示对应的 Lane Connector ID
 
 ### 3. 超速违规 (Speed Violations)
 

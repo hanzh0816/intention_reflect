@@ -75,10 +75,13 @@ class FailureDetailsQuery:
             history = self._load_simulation_history(failure_id)
             if history:
                 details['frame_mapping'] = self._compute_frame_mapping(history)
+                details['traffic_light_info'] = self._extract_traffic_light_info(history)
             else:
                 details['frame_mapping'] = None
+                details['traffic_light_info'] = None
         else:
             details['frame_mapping'] = None
+            details['traffic_light_info'] = None
 
         return details
 
@@ -152,6 +155,36 @@ class FailureDetailsQuery:
             mapping[timestamp_us] = idx
         return mapping
 
+    def _extract_traffic_light_info(self, history) -> Dict[int, List]:
+        """
+        Extract traffic light status for each frame.
+
+        Args:
+            history: SimulationHistory object
+
+        Returns:
+            Dict mapping timestamp_us -> list of traffic light status
+        """
+        traffic_light_info = {}
+        try:
+            for sample in history.data:
+                timestamp_us = sample.ego_state.time_point.time_us
+                # Access traffic_light_status from SimulationHistorySample
+                if hasattr(sample, 'traffic_light_status') and sample.traffic_light_status:
+                    # Convert to list of dicts for easier display
+                    tl_list = []
+                    for tl in sample.traffic_light_status:
+                        tl_dict = {
+                            'lane_connector_id': tl.lane_connector_id,
+                            'status': tl.status.name if hasattr(tl.status, 'name') else str(tl.status)
+                        }
+                        tl_list.append(tl_dict)
+                    traffic_light_info[timestamp_us] = tl_list
+        except Exception as e:
+            print(f"Warning: Failed to extract traffic light info: {e}")
+
+        return traffic_light_info
+
 
 def format_basic_info(details: Dict) -> None:
     """Format and print basic scenario information."""
@@ -176,7 +209,7 @@ def format_basic_info(details: Dict) -> None:
     print(f"  Drivable Area:         {'Yes' if basic['has_drivable_area_violation'] else 'No'}")
 
 
-def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict]) -> None:
+def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict], traffic_light_info: Optional[Dict] = None) -> None:
     """Format and print collision details."""
     if not collisions:
         return
@@ -198,6 +231,25 @@ def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict]) -> 
         print(f"  Collision Energy: {collision['collision_energy']:.2f}")
         print(f"  Ego Speed:       {collision['ego_speed']:.2f} m/s")
         print(f"  Object Speed:    {collision['object_speed']:.2f} m/s")
+
+        # Display traffic light info if available
+        if traffic_light_info and timestamp in traffic_light_info:
+            tl_status_list = traffic_light_info[timestamp]
+            if tl_status_list:
+                print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
+                for tl_idx, tl in enumerate(tl_status_list, 1):
+                    # Format status with color indicators
+                    status = tl['status']
+                    if status == 'RED':
+                        status_display = f"🔴 {status}"
+                    elif status == 'GREEN':
+                        status_display = f"🟢 {status}"
+                    elif status == 'YELLOW':
+                        status_display = f"🟡 {status}"
+                    else:
+                        status_display = f"⚪ {status}"
+
+                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
         print()
 
 
@@ -352,8 +404,9 @@ def main():
     format_basic_info(details)
 
     frame_mapping = details.get('frame_mapping')
+    traffic_light_info = details.get('traffic_light_info')
 
-    format_collisions(details['collisions'], frame_mapping)
+    format_collisions(details['collisions'], frame_mapping, traffic_light_info)
     format_speed_violations(details['speed_violations'], frame_mapping)
     format_deadlock(details['deadlock'], frame_mapping)
     format_drivable_area_violations(details['drivable_area_violations'], frame_mapping)
@@ -363,7 +416,7 @@ def main():
 
     if not args.show_frames and (details['collisions'] or details['speed_violations'] or
                                   details['deadlock'] or details['drivable_area_violations']):
-        print("Tip: Use --show-frames to see frame numbers (requires loading simulation history)")
+        print("Tip: Use --show-frames to see frame numbers and traffic light status (requires loading simulation history)")
         print()
 
 

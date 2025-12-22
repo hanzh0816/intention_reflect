@@ -32,6 +32,7 @@ python scripts/query_failure_details.py --scenario-name "00cca24d240f5980" --sho
 - ✅ **帧号**（需要 `--show-frames`）
 - ✅ **碰撞类型**（前向/侧向/后向/停止车辆）
 - ✅ **责任判定**（是否由自车导致）⚠️
+- ✅ **红绿灯状态**（碰撞时刻的红绿灯信息，需要 `--show-frames`）✨
 - 碰撞对象类型（车辆/行人等）
 - 碰撞能量（Delta-V）
 - 自车和对象速度
@@ -146,6 +147,9 @@ Collision #1:
   Collision Energy: 45.23
   Ego Speed:       12.50 m/s
   Object Speed:    8.30 m/s
+  Traffic Lights:  2 light(s) detected        ← 碰撞时刻的红绿灯状态 ✨
+    Light 1: 🔴 RED (Lane: 12345)
+    Light 2: 🟢 GREEN (Lane: 12346)
 
 --------------------------------------------------------------------------------
 Speed Violations (1 total)

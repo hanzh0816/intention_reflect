@@ -19,6 +19,7 @@
 - ✅ 碰撞发生在哪一帧
 - ✅ 碰撞类型（前向/侧向/后向/停止车辆）
 - ✅ 责任判定（是否由自车导致）⚠️
+- ✅ 红绿灯状态（碰撞时刻的红绿灯信息）✨
 - 碰撞对象类型
 - 碰撞能量
 - 自车和对象速度
@@ -136,6 +137,9 @@ Collision #1:
   Collision Energy: 45.23
   Ego Speed:       12.50 m/s
   Object Speed:    8.30 m/s
+  Traffic Lights:  2 light(s) detected        ← 红绿灯状态 ✨
+    Light 1: 🔴 RED (Lane: 12345)
+    Light 2: 🟢 GREEN (Lane: 12346)
 
 --------------------------------------------------------------------------------
 Speed Violations (1 total)
@@ -178,7 +182,36 @@ def _compute_frame_mapping(self, history) -> Dict[int, int]:
     return mapping
 ```
 
-### 3. 格式化输出
+### 3. 红绿灯信息提取（新增 ✨）
+
+```python
+def _extract_traffic_light_info(self, history) -> Dict[int, List]:
+    """
+    从 SimulationHistory 提取每一帧的红绿灯状态
+    """
+    traffic_light_info = {}
+    for sample in history.data:
+        timestamp_us = sample.ego_state.time_point.time_us
+        # 从 SimulationHistorySample 获取 traffic_light_status
+        if hasattr(sample, 'traffic_light_status') and sample.traffic_light_status:
+            tl_list = []
+            for tl in sample.traffic_light_status:
+                tl_dict = {
+                    'lane_connector_id': tl.lane_connector_id,
+                    'status': tl.status.name  # RED, GREEN, YELLOW, UNKNOWN
+                }
+                tl_list.append(tl_dict)
+            traffic_light_info[timestamp_us] = tl_list
+    return traffic_light_info
+```
+
+**红绿灯信息来源**：
+- 从 `SimulationHistorySample` 的 `traffic_light_status` 字段获取
+- 每个红绿灯包含 `lane_connector_id` 和 `status`
+- 状态包括：RED（红灯）、GREEN（绿灯）、YELLOW（黄灯）、UNKNOWN（未知）
+- 在碰撞事件显示时，会自动查找对应时间戳的红绿灯状态
+
+### 4. 格式化输出
 
 每种失败类型都有专门的格式化函数：
 - `format_collisions()`: 碰撞事件
@@ -191,11 +224,12 @@ def _compute_frame_mapping(self, history) -> Dict[int, int]:
 | 查询模式 | 速度 | 内存占用 | 功能 |
 |---------|------|---------|------|
 | 基本查询 | 极快（<100ms） | 低（<10MB） | 时间戳、失败类型 |
-| 详细查询 | 较慢（1-5s） | 高（100-500MB） | + 精确帧号 |
+| 详细查询 | 较慢（1-5s） | 高（100-500MB） | + 精确帧号 + 红绿灯状态 ✨ |
 
 **优化**：
 - 基本查询只访问数据库，不加载历史记录
 - 详细查询才反序列化 SimulationHistory
+- 红绿灯信息与帧号同步提取，无额外开销
 - 使用缓存映射减少重复计算
 
 ## 🚀 与现有工具的集成
@@ -255,7 +289,9 @@ scripts/
 - [x] 详细查询功能（带 `--show-frames`）
   - [x] 加载 SimulationHistory
   - [x] 计算帧号映射
+  - [x] 提取红绿灯信息 ✨
   - [x] 显示碰撞帧号
+  - [x] 显示碰撞时刻的红绿灯状态 ✨
   - [x] 显示超速帧号范围
   - [x] 显示死锁帧号范围
   - [x] 显示可行驶区域违规帧号
@@ -289,13 +325,15 @@ scripts/
 ✅ 返回失败类型
 ✅ 返回发生在哪一帧（或从哪一帧开始）
 ✅ 返回责任判定
+✅ 返回红绿灯状态（碰撞时刻的红绿灯信息）✨
 ✅ 返回所有详细信息
 
 **核心优势**：
 - 快速查询（基本模式毫秒级）
 - 精确定位（帧号级别）
+- 红绿灯状态显示（帮助分析碰撞原因）✨
 - 灵活使用（命令行 + Python 模块）
 - 完整文档（使用指南 + 示例）
 - 无缝集成（与现有工具配合）
 
-现在用户可以高效地分析和调试所有 failure cases！🚀
+现在用户可以高效地分析和调试所有 failure cases，包括碰撞时的红绿灯状态！🚀
