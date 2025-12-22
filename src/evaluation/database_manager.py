@@ -282,3 +282,66 @@ class DatabaseManager:
             ))
 
         logger.info(f"Saved failure case {failure_case_id} to database")
+
+    def query_failure_case_by_scenario(self, scenario_name: str):
+        """
+        Query failure case by scenario_name.
+
+        Args:
+            scenario_name: Scenario name to query
+
+        Returns:
+            Dict with failure case data, or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM failure_cases
+                WHERE scenario_name = ?
+                LIMIT 1
+            """, (scenario_name,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+    def get_simulation_history_blob(self, failure_case_id: int):
+        """
+        Get simulation history BLOB for a failure case.
+
+        Args:
+            failure_case_id: Failure case ID
+
+        Returns:
+            Compressed history BLOB bytes, or None if not found
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT history_blob FROM simulation_histories
+                WHERE failure_case_id = ?
+            """, (failure_case_id,))
+            row = cursor.fetchone()
+            if row:
+                return row['history_blob']
+            return None
+
+    def list_all_failure_cases(self):
+        """
+        List all failure cases with summary information.
+
+        Returns:
+            List of dicts with failure case summary data
+        """
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT
+                    id, scenario_name, scenario_type, log_name, planner_name,
+                    failure_severity, duration_seconds,
+                    has_collision, has_speed_violation, has_deadlock,
+                    has_drivable_area_violation
+                FROM failure_cases
+                ORDER BY simulation_timestamp DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]

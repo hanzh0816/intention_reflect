@@ -93,3 +93,30 @@ class HistorySerializer:
         except Exception as e:
             logger.error(f"Failed to deserialize history: {e}", exc_info=True)
             raise
+
+    def deserialize_from_bytes(self, blob_data: bytes) -> SimulationHistory:
+        """
+        Deserialize history directly from compressed bytes (from database BLOB).
+
+        Args:
+            blob_data: Compressed history bytes (lzma compressed pickle)
+
+        Returns:
+            SimulationHistory object
+        """
+        try:
+            # Decompress
+            decompressed_data = lzma.decompress(blob_data)
+
+            # Unpickle
+            history = pickle.loads(decompressed_data)
+
+            logger.debug(
+                f"Deserialized history from bytes: {len(history)} samples"
+            )
+
+            return history
+
+        except Exception as e:
+            logger.error(f"Failed to deserialize history from bytes: {e}", exc_info=True)
+            raise
