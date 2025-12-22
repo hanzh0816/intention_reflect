@@ -88,7 +88,7 @@ def format_failure_type(case: dict) -> str:
 def build_scenario_builder(
     data_root: Optional[str],
     map_root: Optional[str],
-    db_files: Optional[str],
+    db_files: Optional[str] = None,
     sensor_root: Optional[str] = None,
     map_version: str = "nuplan-maps-v1.0",
 ) -> Optional[NuPlanScenarioBuilder]:
@@ -105,14 +105,14 @@ def build_scenario_builder(
     Returns:
         NuPlanScenarioBuilder instance, or None if parameters are missing
     """
-    if not all([data_root, map_root, db_files]):
-        logger.info("Scenario builder parameters not provided, will use StubScenario")
-        return None
+
 
     logger.info("Building scenario_builder with nuplan database...")
 
     # Parse db_files (can be comma-separated)
-    if ',' in db_files:
+    if db_files is None:
+        db_file_list = None
+    elif ',' in db_files:
         db_file_list = [f.strip() for f in db_files.split(',')]
     else:
         db_file_list = db_files
@@ -438,6 +438,7 @@ def main():
     parser.add_argument(
         '--db-files',
         type=str,
+        default=None,
         help='Path to nuplan database file(s), comma-separated for multiple files '
              '(optional, required if data-root is provided)'
     )
