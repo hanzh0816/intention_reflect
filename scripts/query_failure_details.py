@@ -284,8 +284,25 @@ def format_speed_violations(violations: List[Dict], frame_mapping: Optional[Dict
         print(f"  Mean Overspeed:  {violation['mean_overspeed_mps']:.2f} m/s")
         if violation['speed_limit_mps']:
             print(f"  Speed Limit:     {violation['speed_limit_mps']:.2f} m/s")
-        print()
+        # Display traffic light info if available
+        if traffic_light_info and timestamp in traffic_light_info:
+            tl_status_list = traffic_light_info[timestamp]
+            if tl_status_list:
+                print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
+                for tl_idx, tl in enumerate(tl_status_list, 1):
+                    # Format status with color indicators
+                    status = tl['status']
+                    if status == 'RED':
+                        status_display = f"🔴 {status}"
+                    elif status == 'GREEN':
+                        status_display = f"🟢 {status}"
+                    elif status == 'YELLOW':
+                        status_display = f"🟡 {status}"
+                    else:
+                        status_display = f"⚪ {status}"
 
+                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+        print()
 
 def format_deadlock(deadlock: Optional[Dict], frame_mapping: Optional[Dict]) -> None:
     """Format and print deadlock details."""
@@ -314,8 +331,25 @@ def format_deadlock(deadlock: Optional[Dict], frame_mapping: Optional[Dict]) -> 
     print(f"  Expected Progress:   {deadlock['expected_progress_meters']:.2f} meters")
     print(f"  Progress Ratio:      {deadlock['progress_ratio']:.2%}")
     print(f"  Final Speed:         {deadlock['final_speed_mps']:.2f} m/s")
-    print()
+    # Display traffic light info if available
+    if traffic_light_info and timestamp in traffic_light_info:
+        tl_status_list = traffic_light_info[timestamp]
+        if tl_status_list:
+            print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
+            for tl_idx, tl in enumerate(tl_status_list, 1):
+                # Format status with color indicators
+                status = tl['status']
+                if status == 'RED':
+                    status_display = f"🔴 {status}"
+                elif status == 'GREEN':
+                    status_display = f"🟢 {status}"
+                elif status == 'YELLOW':
+                    status_display = f"🟡 {status}"
+                else:
+                    status_display = f"⚪ {status}"
 
+                print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+    print()
 
 def format_drivable_area_violations(violations: List[Dict], frame_mapping: Optional[Dict]) -> None:
     """Format and print drivable area violation details."""
@@ -336,8 +370,25 @@ def format_drivable_area_violations(violations: List[Dict], frame_mapping: Optio
         print(f"  Frame Number:    {frame_num}")
         print(f"  Max Distance:    {violation['max_distance_to_drivable_area']:.2f} meters")
         print(f"  Duration:        {duration_s:.2f} seconds")
-        print()
+        # Display traffic light info if available
+        if traffic_light_info and timestamp in traffic_light_info:
+            tl_status_list = traffic_light_info[timestamp]
+            if tl_status_list:
+                print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
+                for tl_idx, tl in enumerate(tl_status_list, 1):
+                    # Format status with color indicators
+                    status = tl['status']
+                    if status == 'RED':
+                        status_display = f"🔴 {status}"
+                    elif status == 'GREEN':
+                        status_display = f"🟢 {status}"
+                    elif status == 'YELLOW':
+                        status_display = f"🟡 {status}"
+                    else:
+                        status_display = f"⚪ {status}"
 
+                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+        print()
 
 def main():
     parser = argparse.ArgumentParser(
