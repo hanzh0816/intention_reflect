@@ -268,11 +268,15 @@ def export_scenario(
     print("-" * 80)
 
     try:
-        # Export
+        # Export SimulationLog
         output_file = exporter.export_failure_case(scenario_name)
 
+        # Create .nuboard metadata file
+        nuboard_file = exporter.create_nuboard_file()
+
         print("\n✓ Export completed successfully!")
-        print(f"\nOutput file: {output_file}")
+        print(f"\nSimulationLog file: {output_file}")
+        print(f"NuBoard file: {nuboard_file}")
         print(f"Output directory: {output_dir}")
 
         # Print nuBoard command

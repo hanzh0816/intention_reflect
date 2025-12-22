@@ -171,15 +171,21 @@ NuBoard 加载可视化
 
 ```
 work_dirs/failure_viz/
-├── planTF/                          # planner 名称
-│   ├── highway/                     # scenario_type
+├── nuboard_1703123456.nuboard    # NuBoard 元数据文件（必需）
+├── planTF/                        # planner 名称
+│   ├── highway/                   # scenario_type
 │   │   └── 2021.07.16.20.45.29_veh-35_01095_01486/  # log_name
-│   │       └── 00cca24d240f5980/    # scenario_name
+│   │       └── 00cca24d240f5980/  # scenario_name
 │   │           └── 00cca24d240f5980.pkl.xz  # SimulationLog 文件
 │   └── urban/
 │       └── ...
 └── ...
 ```
+
+**重要说明：**
+- `.nuboard` 文件是 nuBoard 的元数据文件，包含指向模拟日志的路径信息
+- 导出工具会自动创建这个文件
+- nuBoard 通过读取 `.nuboard` 文件来定位 SimulationLog 文件
 
 ---
 
@@ -203,7 +209,32 @@ work_dirs/failure_viz/
 
 当前版本暂不支持批量导出。如需批量导出，可以编写简单的 shell 脚本循环调用导出工具。
 
-### Q5: 导出失败怎么办？
+### Q5: nuBoard 报错 "No available nuBoard files are found" 怎么办？
+
+这是因为导出目录中缺少 `.nuboard` 元数据文件。从 v1.2 版本开始，导出工具会自动创建这个文件。
+
+**解决方案：**
+1. 确保使用最新版本的导出工具
+2. 重新导出 failure case，会自动生成 `.nuboard` 文件
+3. 检查导出目录中是否存在 `nuboard_*.nuboard` 文件
+
+**手动创建 .nuboard 文件（不推荐）：**
+```python
+from pathlib import Path
+from nuplan.planning.nuboard.base.data_class import NuBoardFile
+
+output_dir = Path("work_dirs/failure_viz")
+nuboard_file = NuBoardFile(
+    simulation_main_path=str(output_dir),
+    simulation_folder=".",
+    metric_main_path=str(output_dir),
+    metric_folder="metrics",
+    aggregator_metric_folder="aggregator_metric",
+)
+nuboard_file.save_nuboard_file(output_dir / "nuboard.nuboard")
+```
+
+### Q6: 导出失败怎么办？
 
 1. 检查日志输出，了解具体错误
 2. 确认数据库文件存在且完整
@@ -299,7 +330,12 @@ python run_nuboard.py \
 
 ## 更新日志
 
-### v1.1 (当前版本)
+### v1.2 (当前版本)
+- ✅ **修复 nuBoard 无法加载问题**：自动生成 `.nuboard` 元数据文件
+- ✅ 导出工具现在会自动创建 nuBoard 所需的元数据文件
+- ✅ 无需手动创建 `.nuboard` 文件
+
+### v1.1
 - ✅ 支持通过 scenario_name (token) 获取真实的 AbstractScenario 对象
 - ✅ 集成 NuPlanScenarioBuilder 动态查询 scenario
 - ✅ 自动降级机制：真实 scenario → StubScenario

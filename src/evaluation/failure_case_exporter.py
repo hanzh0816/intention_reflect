@@ -4,6 +4,7 @@ Failure case exporter for nuBoard visualization.
 Converts failure cases from SQLite database to nuBoard-compatible format.
 """
 import logging
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Generator, Any
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from nuplan.common.actor_state.ego_state import EgoState
 from nuplan.common.maps.abstract_map import AbstractMap
 from nuplan.planning.simulation.trajectory.trajectory_sampling import TrajectorySampling
 from nuplan.planning.utils.multithreading.worker_sequential import Sequential
+from nuplan.planning.nuboard.base.data_class import NuBoardFile
 
 from src.evaluation.database_manager import DatabaseManager
 from src.evaluation.history_serializer import HistorySerializer
@@ -396,6 +398,37 @@ class FailureCaseExporter:
 
         logger.info(f"✓ Successfully exported failure case to: {output_file}")
         return output_file
+
+    def create_nuboard_file(self) -> Path:
+        """
+        Create a .nuboard metadata file for the exported failure cases.
+
+        This file is required by nuBoard to locate the simulation logs.
+
+        Returns:
+            Path to the created .nuboard file
+        """
+        # Create .nuboard filename with timestamp
+        nuboard_filename = self._output_base / f"nuboard_{int(time.time())}{NuBoardFile.extension()}"
+
+        # Create NuBoardFile object
+        # simulation_folder should be "." because planner folders are directly under output_base
+        # Directory structure: <output_base>/<planner>/<scenario_type>/<log>/<scenario>.pkl.xz
+        # For failure cases, we don't have metrics, so create empty metric folders
+        nuboard_file = NuBoardFile(
+            simulation_main_path=str(self._output_base),
+            simulation_folder=".",  # Planner folders are at the root
+            metric_main_path=str(self._output_base),
+            metric_folder="metrics",  # Empty folder (no metrics for failure cases)
+            aggregator_metric_folder="aggregator_metric",  # Empty folder
+        )
+
+        # Save .nuboard file
+        logger.info(f"Creating .nuboard file: {nuboard_filename}")
+        nuboard_file.save_nuboard_file(nuboard_filename)
+
+        logger.info(f"✓ Successfully created .nuboard file: {nuboard_filename}")
+        return nuboard_filename
 
     def export_multiple(self, scenario_names: List[str]) -> List[Path]:
         """
