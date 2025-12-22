@@ -62,15 +62,62 @@ Total: 3 failure case(s)
 
 ### 第三步：导出特定 scenario
 
-#### 方式 1：使用真实 scenario（推荐）
+#### 导出模式
+
+工具支持三种导出模式：
+
+1. **单个 scenario**: 导出指定的一个 failure case
+2. **多个 scenarios**: 导出指定的多个 failure cases
+3. **所有 scenarios**: 导出数据库中的所有 failure cases
+
+所有导出都会保存到同一个目录（默认 `work_dirs/failure_viz`），方便在 nuBoard 中一起可视化。
+
+#### 方式 1：导出单个 scenario
 
 提供 nuplan 数据库路径，工具会自动通过 scenario_name（token）查询真实的 AbstractScenario 对象：
 
 ```bash
 python scripts/export_failure_cases.py \
   --scenario-name "00cca24d240f5980" \
+  --database-path work_dirs/exp/failure_cases.db
+```
+
+#### 方式 2：导出多个 scenarios（新功能 ✨）
+
+通过空格分隔多个 scenario tokens：
+
+```bash
+python scripts/export_failure_cases.py \
+  --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" "02bcd4f6231b5cd1" \
+  --database-path work_dirs/exp/failure_cases.db
+```
+
+#### 方式 3：导出所有 failure cases（新功能 ✨）
+
+使用 `--all` 参数导出数据库中的所有 failure cases：
+
+```bash
+python scripts/export_failure_cases.py \
+  --all \
+  --database-path work_dirs/exp/failure_cases.db
+```
+
+#### 使用真实 scenario（可选）
+
+对于任何导出模式，都可以添加 nuplan 数据库参数来获取真实的 scenario 对象：
+
+```bash
+python scripts/export_failure_cases.py \
+  --scenario-name "00cca24d240f5980" \
   --database-path work_dirs/exp/failure_cases.db \
-  --output-dir work_dirs/failure_viz \
+  --data-root /data/sets/nuplan \
+  --map-root /data/sets/nuplan/maps \
+  --db-files /data/sets/nuplan/nuplan-v1.1/mini/2021.07.16.20.45.29_veh-35_01095_01486.db
+
+# 或者导出所有 failure cases
+python scripts/export_failure_cases.py \
+  --all \
+  --database-path work_dirs/exp/failure_cases.db \
   --data-root /data/sets/nuplan \
   --map-root /data/sets/nuplan/maps \
   --db-files /data/sets/nuplan/nuplan-v1.1/mini/2021.07.16.20.45.29_veh-35_01095_01486.db
@@ -78,24 +125,35 @@ python scripts/export_failure_cases.py \
 
 **参数说明：**
 
-- `--scenario-name`: 要导出的 scenario token（16位十六进制字符串）
+- `--scenario-name`: 要导出的 scenario token（可指定多个，用空格分隔）
+- `--all`: 导出所有 failure cases
 - `--database-path`: failure case 数据库路径
-- `--output-dir`: 输出目录
-- `--data-root`: nuplan 数据集根目录
-- `--map-root`: nuplan 地图文件目录
-- `--db-files`: nuplan 数据库文件路径（可以用逗号分隔多个文件）
+- `--output-dir`: 输出目录（默认：`work_dirs/failure_viz`）
+- `--data-root`: nuplan 数据集根目录（可选）
+- `--map-root`: nuplan 地图文件目录（可选）
+- `--db-files`: nuplan 数据库文件路径（可选，可以用逗号分隔多个文件）
 - `--sensor-root`: (可选) 传感器数据路径
 - `--map-version`: (可选) 地图版本，默认 `nuplan-maps-v1.0`
 
-#### 方式 2：使用 StubScenario（简化方式）
+#### 使用 StubScenario（简化方式）
 
 如果不提供 nuplan 数据库路径，工具会自动使用轻量级的 StubScenario：
 
 ```bash
+# 单个 scenario
 python scripts/export_failure_cases.py \
   --scenario-name "00cca24d240f5980" \
-  --database-path work_dirs/exp/failure_cases.db \
-  --output-dir work_dirs/failure_viz
+  --database-path work_dirs/exp/failure_cases.db
+
+# 多个 scenarios
+python scripts/export_failure_cases.py \
+  --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" \
+  --database-path work_dirs/exp/failure_cases.db
+
+# 所有 failure cases
+python scripts/export_failure_cases.py \
+  --all \
+  --database-path work_dirs/exp/failure_cases.db
 ```
 
 > **注意：** StubScenario 只包含基本元数据，真实 scenario 包含完整的场景信息（地图、轨迹、传感器数据等），可视化效果更好。
@@ -212,7 +270,30 @@ work_dirs/failure_viz/
 
 ### Q4: 可以批量导出多个 scenarios 吗？
 
-当前版本暂不支持批量导出。如需批量导出，可以编写简单的 shell 脚本循环调用导出工具。
+✅ **v1.3+ 支持批量导出！** 有三种方式：
+
+**方式 1: 指定多个 scenario tokens**
+```bash
+python scripts/export_failure_cases.py \
+  --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" "02bcd4f6231b5cd1" \
+  --database-path work_dirs/exp/failure_cases.db
+```
+
+**方式 2: 导出所有 failure cases**
+```bash
+python scripts/export_failure_cases.py \
+  --all \
+  --database-path work_dirs/exp/failure_cases.db
+```
+
+**方式 3: 使用 shell 脚本（适用于旧版本）**
+```bash
+for scenario in "00cca24d240f5980" "01abd3e5120a4bc0" "02bcd4f6231b5cd1"; do
+  python scripts/export_failure_cases.py \
+    --scenario-name "$scenario" \
+    --database-path work_dirs/exp/failure_cases.db
+done
+```
 
 ### Q5: nuBoard 报错 "No available nuBoard files are found" 怎么办？
 
@@ -258,7 +339,7 @@ python scripts/export_failure_cases.py \
 
 ## 完整示例
 
-### 示例 1：完整工作流（使用真实 scenario）
+### 示例 1：导出所有 failure cases（推荐）
 
 ```bash
 # 1. 列出所有失败案例
@@ -266,34 +347,67 @@ python scripts/export_failure_cases.py \
   --list \
   --database-path work_dirs/exp/failure_cases.db
 
-# 2. 导出指定 scenario（使用真实数据）
+# 2. 导出所有 failure cases（使用默认输出目录）
 python scripts/export_failure_cases.py \
-  --scenario-name "00cca24d240f5980" \
+  --all \
+  --database-path work_dirs/exp/failure_cases.db
+
+# 3. 启动 nuBoard
+python run_nuboard.py \
+  simulation_path=work_dirs/failure_viz \
+  port_number=5006
+```
+
+### 示例 2：导出指定的多个 scenarios
+
+```bash
+# 1. 列出所有失败案例，选择感兴趣的几个
+python scripts/export_failure_cases.py \
+  --list \
+  --database-path work_dirs/exp/failure_cases.db
+
+# 2. 导出指定的 scenarios
+python scripts/export_failure_cases.py \
+  --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" "02bcd4f6231b5cd1" \
+  --database-path work_dirs/exp/failure_cases.db
+
+# 3. 启动 nuBoard
+python run_nuboard.py \
+  simulation_path=work_dirs/failure_viz \
+  port_number=5006
+```
+
+### 示例 3：使用真实 scenario 导出
+
+```bash
+# 导出所有 failure cases，使用真实的 scenario 对象
+python scripts/export_failure_cases.py \
+  --all \
   --database-path work_dirs/exp/failure_cases.db \
-  --output-dir work_dirs/failure_viz \
   --data-root /data/sets/nuplan \
   --map-root /data/sets/nuplan/maps \
   --db-files /data/sets/nuplan/nuplan-v1.1/mini/2021.07.16.20.45.29_veh-35_01095_01486.db
 
-# 3. 启动 nuBoard
-bash scripts/view_failure_case.sh work_dirs/failure_viz 5006
+# 启动 nuBoard
+python run_nuboard.py \
+  simulation_path=work_dirs/failure_viz \
+  port_number=5006
 ```
 
-### 示例 2：简化工作流（使用 StubScenario）
+### 示例 4：增量导出（追加更多 scenarios）
 
 ```bash
-# 1. 列出所有失败案例
+# 第一次导出部分 scenarios
 python scripts/export_failure_cases.py \
-  --list \
+  --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" \
   --database-path work_dirs/exp/failure_cases.db
 
-# 2. 导出指定 scenario（不提供额外数据）
+# 后续追加更多 scenarios（会重用现有的 .nuboard 文件）
 python scripts/export_failure_cases.py \
-  --scenario-name "00cca24d240f5980" \
-  --database-path work_dirs/exp/failure_cases.db \
-  --output-dir work_dirs/failure_viz
+  --scenario-name "02bcd4f6231b5cd1" "03def789abcd1234" \
+  --database-path work_dirs/exp/failure_cases.db
 
-# 3. 启动 nuBoard
+# 所有导出都在同一个目录下，可以一起查看
 python run_nuboard.py \
   simulation_path=work_dirs/failure_viz \
   port_number=5006
@@ -335,7 +449,14 @@ python run_nuboard.py \
 
 ## 更新日志
 
-### v1.2.1 (当前版本)
+### v1.3 (当前版本)
+- ✅ **批量导出功能**：支持导出多个或所有 failure cases
+- ✅ 支持三种导出模式：单个、多个、全部
+- ✅ 统一输出目录：所有导出保存到同一个 `work_dirs/failure_viz`，方便一起可视化
+- ✅ 智能 `.nuboard` 文件管理：重用现有文件，避免重复创建
+- ✅ 默认输出目录：`--output-dir` 现在默认为 `work_dirs/failure_viz`
+
+### v1.2.1
 - ✅ **修复目录遍历错误**：使用标准的 `simulation/` 子目录结构
 - ✅ 避免 `.nuboard` 文件和 planner 目录混在一起导致的 `NotADirectoryError`
 - ✅ 完全兼容 nuBoard 标准目录结构

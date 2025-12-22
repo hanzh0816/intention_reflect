@@ -401,15 +401,34 @@ class FailureCaseExporter:
         logger.info(f"✓ Successfully exported failure case to: {output_file}")
         return output_file
 
-    def create_nuboard_file(self) -> Path:
+    def create_nuboard_file(self, force: bool = False) -> Path:
         """
         Create a .nuboard metadata file for the exported failure cases.
 
         This file is required by nuBoard to locate the simulation logs.
 
+        Args:
+            force: If True, create a new .nuboard file even if one exists.
+                   If False, reuse existing .nuboard file if found.
+
         Returns:
-            Path to the created .nuboard file
+            Path to the .nuboard file (existing or newly created)
         """
+        # Check for existing .nuboard files
+        existing_nuboard_files = list(self._output_base.glob("*.nuboard"))
+
+        if existing_nuboard_files and not force:
+            # Reuse existing .nuboard file
+            nuboard_file = existing_nuboard_files[0]
+            logger.info(f"Reusing existing .nuboard file: {nuboard_file}")
+
+            if len(existing_nuboard_files) > 1:
+                logger.warning(
+                    f"Found {len(existing_nuboard_files)} .nuboard files, using: {nuboard_file.name}"
+                )
+
+            return nuboard_file
+
         # Create .nuboard filename with timestamp
         nuboard_filename = self._output_base / f"nuboard_{int(time.time())}{NuBoardFile.extension()}"
 

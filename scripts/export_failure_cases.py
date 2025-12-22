@@ -11,25 +11,43 @@ Usage examples:
         --list \\
         --database-path work_dirs/exp/failure_cases.db
 
-    # Export a specific scenario (with real scenario from nuplan database)
+    # Show detailed info about a specific scenario
+    python scripts/export_failure_cases.py \\
+        --info "00cca24d240f5980" \\
+        --database-path work_dirs/exp/failure_cases.db
+
+    # Export a single scenario
+    python scripts/export_failure_cases.py \\
+        --scenario-name "00cca24d240f5980" \\
+        --database-path work_dirs/exp/failure_cases.db
+
+    # Export multiple scenarios (space-separated)
+    python scripts/export_failure_cases.py \\
+        --scenario-name "00cca24d240f5980" "01abd3e5120a4bc0" "02bcd4f6231b5cd1" \\
+        --database-path work_dirs/exp/failure_cases.db
+
+    # Export ALL failure cases
+    python scripts/export_failure_cases.py \\
+        --all \\
+        --database-path work_dirs/exp/failure_cases.db
+
+    # Export with real scenario from nuplan database
     python scripts/export_failure_cases.py \\
         --scenario-name "00cca24d240f5980" \\
         --database-path work_dirs/exp/failure_cases.db \\
-        --output-dir work_dirs/failure_viz \\
         --data-root /data/sets/nuplan \\
         --map-root /data/sets/nuplan/maps \\
         --db-files /data/sets/nuplan/nuplan-v1.1/mini/2021.07.16.20.45.29_veh-35_01095_01486.db
-
-    # Export without scenario_builder (uses stub scenario)
-    python scripts/export_failure_cases.py \\
-        --scenario-name "00cca24d240f5980" \\
-        --database-path work_dirs/exp/failure_cases.db \\
-        --output-dir work_dirs/failure_viz
 
     # Then view with nuBoard
     python run_nuboard.py \\
         simulation_path=work_dirs/failure_viz \\
         port_number=5006
+
+Note:
+    - Default output directory is work_dirs/failure_viz
+    - All exported scenarios go to the same directory for easy visualization together
+    - The .nuboard metadata file is created once after all exports complete
 """
 import argparse
 import logging
@@ -248,36 +266,77 @@ def show_scenario_info(exporter: FailureCaseExporter, scenario_name: str) -> boo
     return True
 
 
-def export_scenario(
+def export_scenarios(
     exporter: FailureCaseExporter,
-    scenario_name: str,
+    scenario_names: List[str],
     output_dir: Path
 ) -> bool:
     """
-    Export a single scenario.
+    Export multiple scenarios.
 
     Args:
         exporter: FailureCaseExporter instance
-        scenario_name: Scenario name to export
+        scenario_names: List of scenario names to export
         output_dir: Output directory
 
     Returns:
-        True if successful, False otherwise
+        True if at least one export succeeded, False otherwise
     """
-    print(f"\nExporting failure case: {scenario_name}")
-    print("-" * 80)
+    total = len(scenario_names)
+    print(f"\nExporting {total} failure case(s)...")
+    print("=" * 80)
 
-    try:
-        # Export SimulationLog
-        output_file = exporter.export_failure_case(scenario_name)
+    exported_files = []
+    failed_exports = []
 
-        # Create .nuboard metadata file
-        nuboard_file = exporter.create_nuboard_file()
+    for idx, scenario_name in enumerate(scenario_names, 1):
+        print(f"\n[{idx}/{total}] Exporting: {scenario_name}")
+        print("-" * 80)
 
-        print("\n✓ Export completed successfully!")
-        print(f"\nSimulationLog file: {output_file}")
-        print(f"NuBoard file: {nuboard_file}")
-        print(f"Output directory: {output_dir}")
+        try:
+            # Export SimulationLog
+            output_file = exporter.export_failure_case(scenario_name)
+            exported_files.append(output_file)
+            print(f"✓ Successfully exported to: {output_file}")
+
+        except ValueError as e:
+            print(f"✗ Error: {e}")
+            failed_exports.append((scenario_name, str(e)))
+
+        except Exception as e:
+            print(f"✗ Export failed: {e}")
+            logger.error(f"Export failed for {scenario_name}", exc_info=True)
+            failed_exports.append((scenario_name, str(e)))
+
+    # Summary
+    print("\n" + "=" * 80)
+    print("Export Summary")
+    print("=" * 80)
+    print(f"  Total scenarios: {total}")
+    print(f"  ✓ Succeeded: {len(exported_files)}")
+    print(f"  ✗ Failed: {len(failed_exports)}")
+
+    if failed_exports:
+        print(f"\nFailed exports:")
+        for name, error in failed_exports:
+            print(f"  - {name}: {error}")
+
+    if exported_files:
+        print(f"\nExported files:")
+        for f in exported_files[:5]:  # Show first 5
+            print(f"  - {f}")
+        if len(exported_files) > 5:
+            print(f"  ... and {len(exported_files) - 5} more")
+
+        # Create .nuboard metadata file once for all exports
+        print("\n" + "-" * 80)
+        try:
+            nuboard_file = exporter.create_nuboard_file()
+            print(f"✓ Created .nuboard file: {nuboard_file}")
+        except Exception as e:
+            print(f"✗ Failed to create .nuboard file: {e}")
+            logger.error("Failed to create .nuboard file", exc_info=True)
+            return False
 
         # Print nuBoard command
         print("\n" + "=" * 80)
@@ -290,16 +349,28 @@ def export_scenario(
         print("=" * 80)
 
         return True
-
-    except ValueError as e:
-        print(f"\n✗ Error: {e}")
-        print("\nTip: Use --list to see all available failure cases")
+    else:
+        print("\n✗ No scenarios were exported successfully.")
         return False
 
-    except Exception as e:
-        print(f"\n✗ Export failed: {e}")
-        logger.error("Export failed", exc_info=True)
-        return False
+
+def export_scenario(
+    exporter: FailureCaseExporter,
+    scenario_name: str,
+    output_dir: Path
+) -> bool:
+    """
+    Export a single scenario (legacy function, now calls export_scenarios).
+
+    Args:
+        exporter: FailureCaseExporter instance
+        scenario_name: Scenario name to export
+        output_dir: Output directory
+
+    Returns:
+        True if successful, False otherwise
+    """
+    return export_scenarios(exporter, [scenario_name], output_dir)
 
 
 def main():
@@ -334,14 +405,23 @@ def main():
     action_group.add_argument(
         '--scenario-name',
         type=str,
-        help='Scenario name/token to export (e.g., "00cca24d240f5980")'
+        nargs='+',
+        metavar='SCENARIO_NAME',
+        help='Scenario name/token(s) to export. Can specify multiple scenarios separated by space '
+             '(e.g., "00cca24d240f5980 01abd3e5120a4bc0")'
+    )
+    action_group.add_argument(
+        '--all',
+        action='store_true',
+        help='Export all failure cases from database'
     )
 
     # Output directory (required for export)
     parser.add_argument(
         '--output-dir',
         type=Path,
-        help='Output directory for nuBoard files (required when exporting)'
+        default=Path('work_dirs/failure_viz'),
+        help='Output directory for nuBoard files (default: work_dirs/failure_viz)'
     )
 
     # Scenario builder parameters (optional)
@@ -388,8 +468,8 @@ def main():
         logging.getLogger('src.evaluation').setLevel(logging.DEBUG)
 
     # Validate arguments
-    if args.scenario_name and not args.output_dir:
-        parser.error("--output-dir is required when exporting a scenario")
+    if (args.scenario_name or args.all) and not args.output_dir:
+        parser.error("--output-dir is required when exporting scenarios")
 
     # Check database exists
     if not args.database_path.exists():
@@ -431,8 +511,25 @@ def main():
         success = show_scenario_info(exporter, args.info)
         sys.exit(0 if success else 1)
 
+    elif args.all:
+        # Export all failure cases
+        cases = exporter.list_failure_cases()
+        if not cases:
+            print("\n✗ No failure cases found in database.")
+            print("Make sure you have run simulation with failure_case_collector callback enabled.")
+            sys.exit(1)
+
+        scenario_names = [case['scenario_name'] for case in cases]
+        print(f"\nFound {len(scenario_names)} failure case(s) in database")
+        print("Exporting all to:", args.output_dir)
+
+        success = export_scenarios(exporter, scenario_names, args.output_dir)
+        sys.exit(0 if success else 1)
+
     elif args.scenario_name:
-        success = export_scenario(exporter, args.scenario_name, args.output_dir)
+        # Export specific scenario(s)
+        # args.scenario_name is a list due to nargs='+'
+        success = export_scenarios(exporter, args.scenario_name, args.output_dir)
         sys.exit(0 if success else 1)
 
 
