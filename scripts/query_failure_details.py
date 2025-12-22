@@ -40,9 +40,7 @@ class FailureDetailsQuery:
         self._db_manager.initialize_database()
 
     def query_failure_details(
-        self,
-        scenario_name: str,
-        load_history: bool = False
+        self, scenario_name: str, load_history: bool = False
     ) -> Optional[Dict[str, Any]]:
         """
         Query complete failure details for a scenario.
@@ -59,29 +57,33 @@ class FailureDetailsQuery:
         if failure_case is None:
             return None
 
-        failure_id = failure_case['id']
+        failure_id = failure_case["id"]
 
         # Query all failure details
         details = {
-            'basic_info': failure_case,
-            'collisions': self._query_collisions(failure_id),
-            'speed_violations': self._query_speed_violations(failure_id),
-            'deadlock': self._query_deadlock(failure_id),
-            'drivable_area_violations': self._query_drivable_area_violations(failure_id),
+            "basic_info": failure_case,
+            "collisions": self._query_collisions(failure_id),
+            "speed_violations": self._query_speed_violations(failure_id),
+            "deadlock": self._query_deadlock(failure_id),
+            "drivable_area_violations": self._query_drivable_area_violations(
+                failure_id
+            ),
         }
 
         # Load history to get frame numbers if requested
         if load_history:
             history = self._load_simulation_history(failure_id)
             if history:
-                details['frame_mapping'] = self._compute_frame_mapping(history)
-                details['traffic_light_info'] = self._extract_traffic_light_info(history)
+                details["frame_mapping"] = self._compute_frame_mapping(history)
+                details["traffic_light_info"] = self._extract_traffic_light_info(
+                    history
+                )
             else:
-                details['frame_mapping'] = None
-                details['traffic_light_info'] = None
+                details["frame_mapping"] = None
+                details["traffic_light_info"] = None
         else:
-            details['frame_mapping'] = None
-            details['traffic_light_info'] = None
+            details["frame_mapping"] = None
+            details["traffic_light_info"] = None
 
         return details
 
@@ -89,32 +91,41 @@ class FailureDetailsQuery:
         """Query collision details."""
         with self._db_manager._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM collision_details
                 WHERE failure_case_id = ?
                 ORDER BY timestamp_us
-            """, (failure_case_id,))
+            """,
+                (failure_case_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def _query_speed_violations(self, failure_case_id: int) -> List[Dict]:
         """Query speed violation details."""
         with self._db_manager._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM speed_violation_details
                 WHERE failure_case_id = ?
                 ORDER BY start_timestamp_us
-            """, (failure_case_id,))
+            """,
+                (failure_case_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def _query_deadlock(self, failure_case_id: int) -> Optional[Dict]:
         """Query deadlock details."""
         with self._db_manager._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM deadlock_details
                 WHERE failure_case_id = ?
-            """, (failure_case_id,))
+            """,
+                (failure_case_id,),
+            )
             row = cursor.fetchone()
             return dict(row) if row else None
 
@@ -122,11 +133,14 @@ class FailureDetailsQuery:
         """Query drivable area violation details."""
         with self._db_manager._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT * FROM drivable_area_violation_details
                 WHERE failure_case_id = ?
                 ORDER BY timestamp_us
-            """, (failure_case_id,))
+            """,
+                (failure_case_id,),
+            )
             return [dict(row) for row in cursor.fetchall()]
 
     def _load_simulation_history(self, failure_case_id: int):
@@ -170,13 +184,20 @@ class FailureDetailsQuery:
             for sample in history.data:
                 timestamp_us = sample.ego_state.time_point.time_us
                 # Access traffic_light_status from SimulationHistorySample
-                if hasattr(sample, 'traffic_light_status') and sample.traffic_light_status:
+                if (
+                    hasattr(sample, "traffic_light_status")
+                    and sample.traffic_light_status
+                ):
                     # Convert to list of dicts for easier display
                     tl_list = []
                     for tl in sample.traffic_light_status:
                         tl_dict = {
-                            'lane_connector_id': tl.lane_connector_id,
-                            'status': tl.status.name if hasattr(tl.status, 'name') else str(tl.status)
+                            "lane_connector_id": tl.lane_connector_id,
+                            "status": (
+                                tl.status.name
+                                if hasattr(tl.status, "name")
+                                else str(tl.status)
+                            ),
                         }
                         tl_list.append(tl_dict)
                     traffic_light_info[timestamp_us] = tl_list
@@ -188,7 +209,7 @@ class FailureDetailsQuery:
 
 def format_basic_info(details: Dict) -> None:
     """Format and print basic scenario information."""
-    basic = details['basic_info']
+    basic = details["basic_info"]
 
     print(f"\n{'='*80}")
     print(f"Failure Case Details: {basic['scenario_name']}")
@@ -206,10 +227,16 @@ def format_basic_info(details: Dict) -> None:
     print(f"  Collision:             {'Yes' if basic['has_collision'] else 'No'}")
     print(f"  Speed Violation:       {'Yes' if basic['has_speed_violation'] else 'No'}")
     print(f"  Deadlock:              {'Yes' if basic['has_deadlock'] else 'No'}")
-    print(f"  Drivable Area:         {'Yes' if basic['has_drivable_area_violation'] else 'No'}")
+    print(
+        f"  Drivable Area:         {'Yes' if basic['has_drivable_area_violation'] else 'No'}"
+    )
 
 
-def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict], traffic_light_info: Optional[Dict] = None) -> None:
+def format_collisions(
+    collisions: List[Dict],
+    frame_mapping: Optional[Dict],
+    traffic_light_info: Optional[Dict] = None,
+) -> None:
     """Format and print collision details."""
     if not collisions:
         return
@@ -219,8 +246,8 @@ def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict], tra
     print(f"{'-'*80}\n")
 
     for idx, collision in enumerate(collisions, 1):
-        timestamp = collision['timestamp_us']
-        frame_num = frame_mapping.get(timestamp, '?') if frame_mapping else '?'
+        timestamp = collision["timestamp_us"]
+        frame_num = frame_mapping.get(timestamp, "?") if frame_mapping else "?"
 
         print(f"Collision #{idx}:")
         print(f"  Timestamp:       {timestamp} us")
@@ -239,21 +266,27 @@ def format_collisions(collisions: List[Dict], frame_mapping: Optional[Dict], tra
                 print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
                 for tl_idx, tl in enumerate(tl_status_list, 1):
                     # Format status with color indicators
-                    status = tl['status']
-                    if status == 'RED':
+                    status = tl["status"]
+                    if status == "RED":
                         status_display = f"🔴 {status}"
-                    elif status == 'GREEN':
+                    elif status == "GREEN":
                         status_display = f"🟢 {status}"
-                    elif status == 'YELLOW':
+                    elif status == "YELLOW":
                         status_display = f"🟡 {status}"
                     else:
                         status_display = f"⚪ {status}"
 
-                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+                    print(
+                        f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})"
+                    )
         print()
 
 
-def format_speed_violations(violations: List[Dict], frame_mapping: Optional[Dict]) -> None:
+def format_speed_violations(
+    violations: List[Dict],
+    frame_mapping: Optional[Dict],
+    traffic_light_info: Optional[Dict] = None,
+) -> None:
     """Format and print speed violation details."""
     if not violations:
         return
@@ -263,17 +296,17 @@ def format_speed_violations(violations: List[Dict], frame_mapping: Optional[Dict
     print(f"{'-'*80}\n")
 
     for idx, violation in enumerate(violations, 1):
-        start_ts = violation['start_timestamp_us']
-        end_ts = violation['end_timestamp_us']
+        start_ts = violation["start_timestamp_us"]
+        end_ts = violation["end_timestamp_us"]
 
         if frame_mapping:
-            start_frame = frame_mapping.get(start_ts, '?')
-            end_frame = frame_mapping.get(end_ts, '?')
+            start_frame = frame_mapping.get(start_ts, "?")
+            end_frame = frame_mapping.get(end_ts, "?")
             frame_info = f"Frame {start_frame} to {end_frame}"
         else:
             frame_info = "Frame info not available"
 
-        duration_s = violation['duration_us'] / 1e6
+        duration_s = violation["duration_us"] / 1e6
 
         print(f"Violation #{idx}:")
         print(f"  Start Time:      {start_ts} us")
@@ -282,7 +315,7 @@ def format_speed_violations(violations: List[Dict], frame_mapping: Optional[Dict
         print(f"  Duration:        {duration_s:.2f} seconds")
         print(f"  Max Overspeed:   {violation['max_overspeed_mps']:.2f} m/s")
         print(f"  Mean Overspeed:  {violation['mean_overspeed_mps']:.2f} m/s")
-        if violation['speed_limit_mps']:
+        if violation["speed_limit_mps"]:
             print(f"  Speed Limit:     {violation['speed_limit_mps']:.2f} m/s")
         # Display traffic light info if available
         if traffic_light_info and timestamp in traffic_light_info:
@@ -291,20 +324,27 @@ def format_speed_violations(violations: List[Dict], frame_mapping: Optional[Dict
                 print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
                 for tl_idx, tl in enumerate(tl_status_list, 1):
                     # Format status with color indicators
-                    status = tl['status']
-                    if status == 'RED':
+                    status = tl["status"]
+                    if status == "RED":
                         status_display = f"🔴 {status}"
-                    elif status == 'GREEN':
+                    elif status == "GREEN":
                         status_display = f"🟢 {status}"
-                    elif status == 'YELLOW':
+                    elif status == "YELLOW":
                         status_display = f"🟡 {status}"
                     else:
                         status_display = f"⚪ {status}"
 
-                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+                    print(
+                        f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})"
+                    )
         print()
 
-def format_deadlock(deadlock: Optional[Dict], frame_mapping: Optional[Dict]) -> None:
+
+def format_deadlock(
+    deadlock: Optional[Dict],
+    frame_mapping: Optional[Dict],
+    traffic_light_info: Optional[Dict] = None,
+) -> None:
     """Format and print deadlock details."""
     if not deadlock:
         return
@@ -313,12 +353,12 @@ def format_deadlock(deadlock: Optional[Dict], frame_mapping: Optional[Dict]) -> 
     print(f"Deadlock Event")
     print(f"{'-'*80}\n")
 
-    start_ts = deadlock['start_timestamp_us']
-    end_ts = deadlock['end_timestamp_us']
+    start_ts = deadlock["start_timestamp_us"]
+    end_ts = deadlock["end_timestamp_us"]
 
     if frame_mapping:
-        start_frame = frame_mapping.get(start_ts, '?')
-        end_frame = frame_mapping.get(end_ts, '?')
+        start_frame = frame_mapping.get(start_ts, "?")
+        end_frame = frame_mapping.get(end_ts, "?")
         frame_info = f"Frame {start_frame} to {end_frame}"
     else:
         frame_info = "Frame info not available"
@@ -338,20 +378,27 @@ def format_deadlock(deadlock: Optional[Dict], frame_mapping: Optional[Dict]) -> 
             print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
             for tl_idx, tl in enumerate(tl_status_list, 1):
                 # Format status with color indicators
-                status = tl['status']
-                if status == 'RED':
+                status = tl["status"]
+                if status == "RED":
                     status_display = f"🔴 {status}"
-                elif status == 'GREEN':
+                elif status == "GREEN":
                     status_display = f"🟢 {status}"
-                elif status == 'YELLOW':
+                elif status == "YELLOW":
                     status_display = f"🟡 {status}"
                 else:
                     status_display = f"⚪ {status}"
 
-                print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+                print(
+                    f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})"
+                )
     print()
 
-def format_drivable_area_violations(violations: List[Dict], frame_mapping: Optional[Dict]) -> None:
+
+def format_drivable_area_violations(
+    violations: List[Dict],
+    frame_mapping: Optional[Dict],
+    traffic_light_info: Optional[Dict] = None,
+) -> None:
     """Format and print drivable area violation details."""
     if not violations:
         return
@@ -361,14 +408,16 @@ def format_drivable_area_violations(violations: List[Dict], frame_mapping: Optio
     print(f"{'-'*80}\n")
 
     for idx, violation in enumerate(violations, 1):
-        timestamp = violation['timestamp_us']
-        frame_num = frame_mapping.get(timestamp, '?') if frame_mapping else '?'
-        duration_s = violation['violation_duration_us'] / 1e6
+        timestamp = violation["timestamp_us"]
+        frame_num = frame_mapping.get(timestamp, "?") if frame_mapping else "?"
+        duration_s = violation["violation_duration_us"] / 1e6
 
         print(f"Violation #{idx}:")
         print(f"  Timestamp:       {timestamp} us")
         print(f"  Frame Number:    {frame_num}")
-        print(f"  Max Distance:    {violation['max_distance_to_drivable_area']:.2f} meters")
+        print(
+            f"  Max Distance:    {violation['max_distance_to_drivable_area']:.2f} meters"
+        )
         print(f"  Duration:        {duration_s:.2f} seconds")
         # Display traffic light info if available
         if traffic_light_info and timestamp in traffic_light_info:
@@ -377,44 +426,47 @@ def format_drivable_area_violations(violations: List[Dict], frame_mapping: Optio
                 print(f"  Traffic Lights:  {len(tl_status_list)} light(s) detected")
                 for tl_idx, tl in enumerate(tl_status_list, 1):
                     # Format status with color indicators
-                    status = tl['status']
-                    if status == 'RED':
+                    status = tl["status"]
+                    if status == "RED":
                         status_display = f"🔴 {status}"
-                    elif status == 'GREEN':
+                    elif status == "GREEN":
                         status_display = f"🟢 {status}"
-                    elif status == 'YELLOW':
+                    elif status == "YELLOW":
                         status_display = f"🟡 {status}"
                     else:
                         status_display = f"⚪ {status}"
 
-                    print(f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})")
+                    print(
+                        f"    Light {tl_idx}: {status_display} (Lane: {tl['lane_connector_id']})"
+                    )
         print()
+
 
 def main():
     parser = argparse.ArgumentParser(
         description="Query detailed failure information by scenario token",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog=__doc__,
     )
 
     parser.add_argument(
-        '--scenario-name',
+        "--scenario-name",
         type=str,
         required=True,
-        help='Scenario name/token to query (e.g., "00cca24d240f5980")'
+        help='Scenario name/token to query (e.g., "00cca24d240f5980")',
     )
 
     parser.add_argument(
-        '--database-path',
+        "--database-path",
         type=Path,
-        default=Path('work_dirs/exp/failure_cases.db'),
-        help='Path to failure cases database (default: work_dirs/exp/failure_cases.db)'
+        default=Path("work_dirs/exp/failure_cases.db"),
+        help="Path to failure cases database (default: work_dirs/exp/failure_cases.db)",
     )
 
     parser.add_argument(
-        '--show-frames',
-        action='store_true',
-        help='Load simulation history to show frame numbers (slower but more informative)'
+        "--show-frames",
+        action="store_true",
+        help="Load simulation history to show frame numbers (slower but more informative)",
     )
 
     args = parser.parse_args()
@@ -422,7 +474,9 @@ def main():
     # Check database exists
     if not args.database_path.exists():
         print(f"\n✗ Error: Database not found: {args.database_path}")
-        print("\nMake sure you have run simulation with failure_case_collector callback enabled.")
+        print(
+            "\nMake sure you have run simulation with failure_case_collector callback enabled."
+        )
         sys.exit(1)
 
     # Create query object
@@ -439,8 +493,7 @@ def main():
 
     try:
         details = query.query_failure_details(
-            args.scenario_name,
-            load_history=args.show_frames
+            args.scenario_name, load_history=args.show_frames
         )
     except Exception as e:
         print(f"\n✗ Error querying database: {e}")
@@ -448,28 +501,36 @@ def main():
 
     if details is None:
         print(f"\n✗ Scenario '{args.scenario_name}' not found in database.")
-        print("\nTip: Use 'python scripts/export_failure_cases.py --list' to see all available scenarios")
+        print(
+            "\nTip: Use 'python scripts/export_failure_cases.py --list' to see all available scenarios"
+        )
         sys.exit(1)
 
     # Format and display results
     format_basic_info(details)
 
-    frame_mapping = details.get('frame_mapping')
-    traffic_light_info = details.get('traffic_light_info')
+    frame_mapping = details.get("frame_mapping")
+    traffic_light_info = details.get("traffic_light_info")
 
-    format_collisions(details['collisions'], frame_mapping, traffic_light_info)
-    format_speed_violations(details['speed_violations'], frame_mapping)
-    format_deadlock(details['deadlock'], frame_mapping)
-    format_drivable_area_violations(details['drivable_area_violations'], frame_mapping)
+    format_collisions(details["collisions"], frame_mapping, traffic_light_info)
+    format_speed_violations(details["speed_violations"], frame_mapping)
+    format_deadlock(details["deadlock"], frame_mapping)
+    format_drivable_area_violations(details["drivable_area_violations"], frame_mapping)
 
     # Footer
     print(f"{'='*80}\n")
 
-    if not args.show_frames and (details['collisions'] or details['speed_violations'] or
-                                  details['deadlock'] or details['drivable_area_violations']):
-        print("Tip: Use --show-frames to see frame numbers and traffic light status (requires loading simulation history)")
+    if not args.show_frames and (
+        details["collisions"]
+        or details["speed_violations"]
+        or details["deadlock"]
+        or details["drivable_area_violations"]
+    ):
+        print(
+            "Tip: Use --show-frames to see frame numbers and traffic light status (requires loading simulation history)"
+        )
         print()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
