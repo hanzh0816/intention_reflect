@@ -117,12 +117,13 @@ def build_scenario_builder(
         return None
 
 
-def list_failure_cases(exporter: FailureCaseExporter) -> None:
+def list_failure_cases(exporter: FailureCaseExporter, verbose: bool = False) -> None:
     """
     List all failure cases in the database.
 
     Args:
         exporter: FailureCaseExporter instance
+        verbose: If True, show detailed information including log_name
     """
     cases = exporter.list_failure_cases()
 
@@ -132,25 +133,119 @@ def list_failure_cases(exporter: FailureCaseExporter) -> None:
         return
 
     print(f"\nFound {len(cases)} failure case(s):\n")
-    print("-" * 120)
-    print(f"{'#':<4} {'Scenario Name':<40} {'Planner':<15} {'Severity':<10} {'Type':<25} {'Duration':<8}")
-    print("-" * 120)
 
-    for idx, case in enumerate(cases, 1):
-        scenario_name = case['scenario_name']
-        planner_name = case['planner_name']
-        severity = case['failure_severity']
-        failure_type = format_failure_type(case)
-        duration = f"{case['duration_seconds']:.1f}s"
+    if verbose:
+        # Detailed view with log_name
+        print("-" * 150)
+        print(f"{'#':<4} {'Scenario Name':<18} {'Log Name':<50} {'Planner':<12} {'Type':<20} {'Severity':<10}")
+        print("-" * 150)
 
-        # Truncate long scenario names
-        if len(scenario_name) > 37:
-            scenario_name = scenario_name[:34] + "..."
+        for idx, case in enumerate(cases, 1):
+            scenario_name = case['scenario_name']
+            log_name = case['log_name']
+            planner_name = case['planner_name']
+            severity = case['failure_severity']
+            failure_type = format_failure_type(case)
 
-        print(f"{idx:<4} {scenario_name:<40} {planner_name:<15} {severity:<10} {failure_type:<25} {duration:<8}")
+            # Truncate long names
+            if len(log_name) > 47:
+                log_name = log_name[:44] + "..."
 
-    print("-" * 120)
-    print(f"\nTotal: {len(cases)} failure case(s)")
+            print(f"{idx:<4} {scenario_name:<18} {log_name:<50} {planner_name:<12} {failure_type:<20} {severity:<10}")
+
+        print("-" * 150)
+        print(f"\nTotal: {len(cases)} failure case(s)")
+        print("\nTip: The log_name corresponds to the database file:")
+        print("     <data-root>/nuplan-v1.1/<split>/<log_name>.db")
+        print("     Example: /data/sets/nuplan/nuplan-v1.1/mini/2021.07.16.20.45.29_veh-35_01095_01486.db")
+    else:
+        # Compact view
+        print("-" * 120)
+        print(f"{'#':<4} {'Scenario Name':<40} {'Planner':<15} {'Severity':<10} {'Type':<25} {'Duration':<8}")
+        print("-" * 120)
+
+        for idx, case in enumerate(cases, 1):
+            scenario_name = case['scenario_name']
+            planner_name = case['planner_name']
+            severity = case['failure_severity']
+            failure_type = format_failure_type(case)
+            duration = f"{case['duration_seconds']:.1f}s"
+
+            # Truncate long scenario names
+            if len(scenario_name) > 37:
+                scenario_name = scenario_name[:34] + "..."
+
+            print(f"{idx:<4} {scenario_name:<40} {planner_name:<15} {severity:<10} {failure_type:<25} {duration:<8}")
+
+        print("-" * 120)
+        print(f"\nTotal: {len(cases)} failure case(s)")
+        print("\nTip: Use --verbose to see log_name and database file information")
+
+
+def show_scenario_info(exporter: FailureCaseExporter, scenario_name: str) -> bool:
+    """
+    Show detailed information about a specific scenario.
+
+    Args:
+        exporter: FailureCaseExporter instance
+        scenario_name: Scenario name to query
+
+    Returns:
+        True if found, False otherwise
+    """
+    # Query the failure case
+    failure_case = exporter._db_manager.query_failure_case_by_scenario(scenario_name)
+
+    if failure_case is None:
+        print(f"\n✗ Scenario '{scenario_name}' not found in database.")
+        print("\nTip: Use --list to see all available scenarios")
+        return False
+
+    print(f"\n{'='*80}")
+    print(f"Scenario Information: {scenario_name}")
+    print(f"{'='*80}\n")
+
+    print(f"Basic Information:")
+    print(f"  Scenario Name (Token): {failure_case['scenario_name']}")
+    print(f"  Scenario Type:         {failure_case['scenario_type']}")
+    print(f"  Log Name:              {failure_case['log_name']}")
+    print(f"  Planner:               {failure_case['planner_name']}")
+    print(f"  Duration:              {failure_case['duration_seconds']:.2f} seconds")
+    print(f"  Severity:              {failure_case['failure_severity']}")
+
+    print(f"\nFailure Types:")
+    print(f"  Collision:             {'Yes' if failure_case['has_collision'] else 'No'}")
+    print(f"  Speed Violation:       {'Yes' if failure_case['has_speed_violation'] else 'No'}")
+    print(f"  Deadlock:              {'Yes' if failure_case['has_deadlock'] else 'No'}")
+    print(f"  Drivable Area:         {'Yes' if failure_case['has_drivable_area_violation'] else 'No'}")
+
+    print(f"\nDatabase File Mapping:")
+    log_name = failure_case['log_name']
+    print(f"  Log Name:    {log_name}")
+    print(f"  DB File:     <data-root>/nuplan-v1.1/<split>/{log_name}.db")
+    print(f"\n  Common paths:")
+    print(f"    Mini split:      /data/sets/nuplan/nuplan-v1.1/mini/{log_name}.db")
+    print(f"    Trainval split:  /data/sets/nuplan/nuplan-v1.1/trainval/{log_name}.db")
+    print(f"    Test split:      /data/sets/nuplan/nuplan-v1.1/test/{log_name}.db")
+
+    print(f"\nExport Command (with real scenario):")
+    print(f"  python scripts/export_failure_cases.py \\")
+    print(f"    --scenario-name \"{scenario_name}\" \\")
+    print(f"    --database-path work_dirs/exp/failure_cases.db \\")
+    print(f"    --output-dir work_dirs/failure_viz \\")
+    print(f"    --data-root /data/sets/nuplan \\")
+    print(f"    --map-root /data/sets/nuplan/maps \\")
+    print(f"    --db-files /data/sets/nuplan/nuplan-v1.1/mini/{log_name}.db")
+
+    print(f"\nExport Command (simple, using StubScenario):")
+    print(f"  python scripts/export_failure_cases.py \\")
+    print(f"    --scenario-name \"{scenario_name}\" \\")
+    print(f"    --database-path work_dirs/exp/failure_cases.db \\")
+    print(f"    --output-dir work_dirs/failure_viz")
+
+    print(f"\n{'='*80}\n")
+
+    return True
 
 
 def export_scenario(
@@ -225,6 +320,12 @@ def main():
         '--list',
         action='store_true',
         help='List all failure cases in database'
+    )
+    action_group.add_argument(
+        '--info',
+        type=str,
+        metavar='SCENARIO_NAME',
+        help='Show detailed information about a specific scenario'
     )
     action_group.add_argument(
         '--scenario-name',
@@ -319,8 +420,12 @@ def main():
 
     # Execute action
     if args.list:
-        list_failure_cases(exporter)
+        list_failure_cases(exporter, verbose=args.verbose)
         sys.exit(0)
+
+    elif args.info:
+        success = show_scenario_info(exporter, args.info)
+        sys.exit(0 if success else 1)
 
     elif args.scenario_name:
         success = export_scenario(exporter, args.scenario_name, args.output_dir)
