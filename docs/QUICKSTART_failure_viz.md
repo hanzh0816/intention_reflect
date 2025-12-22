@@ -32,6 +32,16 @@ http://localhost:5006
 python scripts/export_failure_cases.py --list
 ```
 
+### 查询 failure case 详细信息（新功能 ✨）
+
+```bash
+# 快速查询失败类型和时间戳
+python scripts/query_failure_details.py --scenario-name "00cca24d240f5980"
+
+# 详细查询（包含帧号）
+python scripts/query_failure_details.py --scenario-name "00cca24d240f5980" --show-frames
+```
+
 ### 导出单个 scenario
 
 ```bash
@@ -234,6 +244,7 @@ rm -rf work_dirs/failure_viz
 ## 📚 需要更多帮助？
 
 - **完整文档：** `docs/failure_case_visualization.md`
+- **查询工具：** `docs/TOOL_query_failure_details.md` ✨
 - **功能介绍：** `docs/FEATURE_v1.3_batch_export.md`
 - **故障排除：** `docs/nuboard_fix_guide.md`
 - **Bug 修复历史：** `docs/BUGFIX_v1.2.1_summary.md`
@@ -249,6 +260,7 @@ rm -rf work_dirs/failure_viz
 alias fc-list='python scripts/export_failure_cases.py --list'
 alias fc-all='python scripts/export_failure_cases.py --all'
 alias fc-export='python scripts/export_failure_cases.py --scenario-name'
+alias fc-query='python scripts/query_failure_details.py --scenario-name'
 alias fc-view='python run_nuboard.py simulation_path=work_dirs/failure_viz port_number=5006'
 alias fc-verify='python scripts/verify_nuboard_structure.py work_dirs/failure_viz'
 ```
@@ -259,6 +271,8 @@ alias fc-verify='python scripts/verify_nuboard_structure.py work_dirs/failure_vi
 fc-list                    # 列出所有
 fc-all                     # 导出所有
 fc-export "case1" "case2"  # 导出指定的
+fc-query "case1"           # 查询失败详情
+fc-query "case1" --show-frames  # 查询详情（含帧号）
 fc-view                    # 启动 nuBoard
 fc-verify                  # 验证结构
 ```
