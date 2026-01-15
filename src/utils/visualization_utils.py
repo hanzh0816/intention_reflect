@@ -391,3 +391,82 @@ def plot_tracked_objects_ego_centric(
     for obj_type, count in object_counts.items():
         type_name = OBJECT_TYPE_LABELS.get(obj_type, str(obj_type))
         logger.debug(f"Rendered {count} {type_name}")
+
+
+def plot_planned_trajectory_ego_centric(
+    ax: plt.Axes,
+    trajectory,
+    ego_state: EgoState,
+    color: str = '#FF00FF',
+    linewidth: float = 2.5,
+    alpha: float = 0.8,
+    label: str = 'Planned Trajectory'
+) -> None:
+    """
+    Render planned trajectory in ego-centric frame.
+
+    Args:
+        ax: Matplotlib axes object
+        trajectory: InterpolatedTrajectory object from simulation sample
+        ego_state: Current ego vehicle state (for coordinate transformation)
+        color: Trajectory line color
+        linewidth: Line width
+        alpha: Transparency
+        label: Legend label
+    """
+    try:
+        # Get sampled trajectory points
+        sampled_traj = trajectory.get_sampled_trajectory()
+
+        if len(sampled_traj) == 0:
+            logger.debug("Empty trajectory, skipping")
+            return
+
+        # Transform trajectory points to ego frame
+        traj_points_ego = []
+        for state in sampled_traj:
+            ego_x, ego_y = transform_to_ego_frame(
+                state.rear_axle.x,
+                state.rear_axle.y,
+                ego_state
+            )
+            traj_points_ego.append((ego_x, ego_y))
+
+        # Plot trajectory as a line
+        if len(traj_points_ego) > 1:
+            xs, ys = zip(*traj_points_ego)
+            ax.plot(
+                xs, ys,
+                color=color,
+                linewidth=linewidth,
+                alpha=alpha,
+                label=label,
+                zorder=7,
+                linestyle='-'
+            )
+
+            # Add markers at trajectory points for better visibility
+            ax.scatter(
+                xs, ys,
+                color=color,
+                s=20,
+                alpha=alpha * 0.6,
+                zorder=7,
+                edgecolors='white',
+                linewidths=0.5
+            )
+
+            # Mark the end point with a larger marker
+            ax.scatter(
+                xs[-1], ys[-1],
+                color=color,
+                s=80,
+                alpha=alpha,
+                zorder=7,
+                marker='*',
+                edgecolors='white',
+                linewidths=1.5
+            )
+
+    except Exception as e:
+        logger.debug(f"Failed to render trajectory: {e}")

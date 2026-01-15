@@ -26,6 +26,7 @@ from src.utils.visualization_utils import (
     plot_map_context_ego_centric,
     plot_tracked_objects_ego_centric,
     plot_vehicle_box_ego_centric,
+    plot_planned_trajectory_ego_centric,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,7 @@ class SimulationVideoGenerator:
         self,
         ego_state: EgoState,
         tracked_objects: TrackedObjects,
+        trajectory,
         agent_id_map: Dict[str, int],
         frame_idx: int,
         total_frames: int,
@@ -126,6 +128,7 @@ class SimulationVideoGenerator:
         Args:
             ego_state: Ego vehicle state
             tracked_objects: Tracked objects at this timestep
+            trajectory: Planned trajectory at this timestep
             agent_id_map: Agent ID mapping
             frame_idx: Current frame index
             total_frames: Total number of frames
@@ -144,7 +147,17 @@ class SimulationVideoGenerator:
             ax, tracked_objects, ego_state, agent_id_map, show_ids=True
         )
 
-        # 3. Render ego vehicle at center (0, 0) heading up
+        # 3. Render planned trajectory
+        if trajectory is not None:
+            plot_planned_trajectory_ego_centric(
+                ax, trajectory, ego_state,
+                color='#FF00FF',  # Magenta color for trajectory
+                linewidth=2.5,
+                alpha=0.8,
+                label='Planned Trajectory'
+            )
+
+        # 4. Render ego vehicle at center (0, 0) heading up
         plot_vehicle_box_ego_centric(
             ax,
             ego_state.rear_axle.x,
@@ -159,7 +172,7 @@ class SimulationVideoGenerator:
             linewidth=2.5,
         )
 
-        # 4. Configure axes
+        # 5. Configure axes
         ax.set_aspect("equal", adjustable="box")
         ax.set_xlim(-self.map_radius, self.map_radius)
         ax.set_ylim(-self.map_radius, self.map_radius)
@@ -231,13 +244,14 @@ class SimulationVideoGenerator:
             if frame_idx % 10 == 0:
                 logger.info(f"Rendering frame {frame_idx + 1}/{total_frames}")
 
-            # Get ego state and tracked objects
+            # Get ego state, tracked objects, and trajectory
             ego_state = sample.ego_state
             tracked_objects = sample.observation.tracked_objects
+            trajectory = sample.trajectory if hasattr(sample, 'trajectory') else None
 
             # Render frame
             frame_rgb = self._render_frame(
-                ego_state, tracked_objects, agent_id_map, frame_idx, total_frames
+                ego_state, tracked_objects, trajectory, agent_id_map, frame_idx, total_frames
             )
 
             # Convert RGB to BGR for OpenCV
