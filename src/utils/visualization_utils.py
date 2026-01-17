@@ -297,7 +297,8 @@ def plot_tracked_objects_ego_centric(
     tracked_objects: TrackedObjects,
     ego_state: EgoState,
     agent_id_map: dict,
-    show_ids: bool = True
+    show_ids: bool = True,
+    map_radius: Optional[float] = None
 ) -> None:
     """
     Render all tracked objects in ego-centric frame with type-based colors and agent IDs.
@@ -308,6 +309,7 @@ def plot_tracked_objects_ego_centric(
         ego_state: Ego vehicle state
         agent_id_map: Mapping from track_token to sequential ID (for vehicles)
         show_ids: Whether to display agent IDs (for vehicles)
+        map_radius: Optional radius in meters to filter agents (only render agents within this distance)
     """
     if not hasattr(tracked_objects, 'tracked_objects'):
         logger.warning("TrackedObjects missing tracked_objects attribute")
@@ -323,6 +325,14 @@ def plot_tracked_objects_ego_centric(
         # 跳过EGO类型（自车单独绘制）
         if obj_type == TrackedObjectType.EGO:
             continue
+
+        # Filter by distance if map_radius is specified
+        if map_radius is not None:
+            dx = obj.center.x - ego_state.rear_axle.x
+            dy = obj.center.y - ego_state.rear_axle.y
+            distance = np.sqrt(dx * dx + dy * dy)
+            if distance > map_radius:
+                continue
 
         try:
             # Extract object info

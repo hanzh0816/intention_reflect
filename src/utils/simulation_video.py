@@ -78,6 +78,7 @@ class SimulationVideoGenerator:
         Build mapping from track_token to sequential ID.
 
         Scans all timesteps and assigns sequential IDs based on first appearance.
+        Only includes agents that appear within map_radius of ego vehicle.
 
         Returns:
             Dict mapping track_token (str) to sequential ID (int)
@@ -89,12 +90,22 @@ class SimulationVideoGenerator:
 
         # Iterate through all samples in history
         for sample in self.history.data:
+            ego_state = sample.ego_state
             tracked_objects = sample.observation.tracked_objects
 
             if not hasattr(tracked_objects, "tracked_objects"):
                 continue
 
             for obj in tracked_objects.tracked_objects:
+                # Calculate distance from ego to agent
+                dx = obj.center.x - ego_state.rear_axle.x
+                dy = obj.center.y - ego_state.rear_axle.y
+                distance = np.sqrt(dx * dx + dy * dy)
+
+                # Skip agents outside map_radius
+                if distance > self.map_radius:
+                    continue
+
                 # Get track token
                 if hasattr(obj.metadata, "track_token"):
                     track_token = obj.metadata.track_token
@@ -110,7 +121,7 @@ class SimulationVideoGenerator:
                         token_to_id[token_str] = next_id
                         next_id += 1
 
-        logger.info(f"Found {len(token_to_id)} unique agents")
+        logger.info(f"Found {len(token_to_id)} unique agents within {self.map_radius}m radius")
         return token_to_id
 
     def _render_frame(
@@ -142,9 +153,9 @@ class SimulationVideoGenerator:
         # 1. Render map in ego frame
         plot_map_context_ego_centric(ax, self.map_api, ego_state, self.map_radius)
 
-        # 2. Render other vehicles with IDs
+        # 2. Render other vehicles with IDs (only within map_radius)
         plot_tracked_objects_ego_centric(
-            ax, tracked_objects, ego_state, agent_id_map, show_ids=True
+            ax, tracked_objects, ego_state, agent_id_map, show_ids=True, map_radius=self.map_radius
         )
 
         # 3. Render planned trajectory

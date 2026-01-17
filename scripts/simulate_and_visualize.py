@@ -332,7 +332,7 @@ def main():
         cmd, output_dir = build_simulation_command(config, args)
 
         # Step 1: Run simulation
-        # run_simulation(cmd, output_dir)
+        run_simulation(cmd, output_dir)
 
         # Step 2: Generate video (unless skipped)
         if not args.skip_video:
